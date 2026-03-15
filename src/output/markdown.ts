@@ -1,6 +1,6 @@
 import { basename, join } from "path";
 import { existsSync } from "node:fs";
-import type { TranscriptionResult } from "../transcription/whisper.ts";
+import type { TranscriptionResult } from "../transcription/types.ts";
 
 export interface MarkdownOptions {
   filePath: string;
@@ -10,6 +10,7 @@ export interface MarkdownOptions {
   isTranslation?: boolean;
   title?: string;
   sourceUrl?: string;
+  model?: string;
 }
 
 function formatTime(seconds: number): string {
@@ -19,7 +20,7 @@ function formatTime(seconds: number): string {
 }
 
 export function generateMarkdown(options: MarkdownOptions): string {
-  const { filePath, result, includeTimestamps, chunksCount, isTranslation, title, sourceUrl } = options;
+  const { filePath, result, includeTimestamps, chunksCount, isTranslation, title, sourceUrl, model } = options;
   const fileName = basename(filePath);
   const date = new Date().toISOString().split("T")[0];
 
@@ -36,7 +37,7 @@ export function generateMarkdown(options: MarkdownOptions): string {
   markdown += `
 **Archivo:** ${filePath}
 **Fecha:** ${date}
-**Modelo:** whisper-1`;
+**Modelo:** ${model || "whisper-1"}`;
 
   if (result.language) {
     markdown += `\n**Idioma:** ${result.language}`;

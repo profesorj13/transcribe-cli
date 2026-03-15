@@ -1,12 +1,9 @@
 import { program } from "commander";
 import { resolveApiKey, setApiKey } from "./config/api-key.ts";
 import { getProvider } from "./providers/index.ts";
-import {
-  transcribeAudio,
-  transcribeChunksParallel,
-  translateAudio,
-  translateChunksParallel,
-} from "./transcription/whisper.ts";
+import * as whisper from "./transcription/whisper.ts";
+import * as elevenlabs from "./transcription/elevenlabs.ts";
+import type { TranscriptionProvider } from "./transcription/types.ts";
 import { generateMarkdown, getOutputPath } from "./output/markdown.ts";
 import { record, askYesNo } from "./recording/recorder.ts";
 import { splitAudio } from "./audio/splitter.ts";
@@ -25,101 +22,153 @@ interface TranscribeFileOptions {
   translate?: boolean;
   title?: string;
   sourceUrl?: string;
+  provider: TranscriptionProvider;
 }
 
 async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
-  const { filePath, output, language, timestamps, translate, title, sourceUrl } = options;
+  const {
+    filePath,
+    output,
+    language,
+    timestamps,
+    translate,
+    title,
+    sourceUrl,
+    provider,
+  } = options;
 
-  const apiKey = await resolveApiKey(options.apiKey);
-  const mode = translate ? "Translating" : "Transcribing";
+  const apiKey = await resolveApiKey(provider, options.apiKey);
 
-  console.log(`${mode}: ${title || filePath}`);
-
-  // Split audio if needed
-  const splitResult = await splitAudio(filePath);
-  const { chunks, cleanup: cleanupChunks } = splitResult;
-
-  let result;
-
-  const audioFn = translate ? translateAudio : transcribeAudio;
-  const chunksFn = translate ? translateChunksParallel : transcribeChunksParallel;
-
-  if (chunks.length > 1) {
-    console.log(`Processing ${chunks.length} chunks in parallel...`);
-    result = await chunksFn({
-      apiKey,
-      chunks,
-      language,
-      timestamps,
-      onProgress: (completed, total) => {
-        console.log(`${translate ? "Translated" : "Transcribed"} chunk ${completed}/${total}`);
-      },
-    });
-  } else {
-    result = await audioFn({
-      apiKey,
-      filePath: chunks[0]!.path,
-      language,
-      timestamps,
-    });
+  if (translate && provider === "elevenlabs") {
+    console.error(
+      "Translation is not supported with ElevenLabs. Use --provider whisper for translation."
+    );
+    process.exit(1);
   }
 
-  // Generate markdown
+  const mode = translate ? "Translating" : "Transcribing";
+  console.log(`${mode}: ${title || filePath}`);
+
+  let result;
+  let chunksCount: number | undefined;
+  let cleanupFn: (() => Promise<void>) | undefined;
+
+  if (provider === "elevenlabs") {
+    // ElevenLabs supports up to 3GB — no splitting needed
+    result = await elevenlabs.transcribeAudio({
+      apiKey,
+      filePath,
+      language,
+      timestamps,
+    });
+  } else {
+    // Whisper: split if needed (25MB limit)
+    const splitResult = await splitAudio(filePath);
+    const { chunks, cleanup } = splitResult;
+    cleanupFn = cleanup;
+
+    const audioFn = translate ? whisper.translateAudio : whisper.transcribeAudio;
+    const chunksFn = translate
+      ? whisper.translateChunksParallel
+      : whisper.transcribeChunksParallel;
+
+    if (chunks.length > 1) {
+      chunksCount = chunks.length;
+      console.log(`Processing ${chunks.length} chunks in parallel...`);
+      result = await chunksFn({
+        apiKey,
+        chunks,
+        language,
+        timestamps,
+        onProgress: (completed, total) => {
+          console.log(
+            `${translate ? "Translated" : "Transcribed"} chunk ${completed}/${total}`
+          );
+        },
+      });
+    } else {
+      result = await audioFn({
+        apiKey,
+        filePath: chunks[0]!.path,
+        language,
+        timestamps,
+      });
+    }
+  }
+
+  const model = provider === "elevenlabs" ? "scribe_v2" : "whisper-1";
+
   const markdown = generateMarkdown({
     filePath,
     result,
     includeTimestamps: timestamps,
-    chunksCount: chunks.length > 1 ? chunks.length : undefined,
+    chunksCount,
     isTranslation: translate,
     title,
     sourceUrl,
+    model,
   });
 
-  // Write output — save in cwd for remote sources (YouTube, URLs)
   const isRemote = !!sourceUrl;
   const outputPath = getOutputPath(filePath, output, isRemote);
   await Bun.write(outputPath, markdown);
-  console.log(`\n${translate ? "Translation" : "Transcription"} saved to: ${outputPath}`);
+  console.log(
+    `\n${translate ? "Translation" : "Transcription"} saved to: ${outputPath}`
+  );
 
-  // Cleanup chunks
-  await cleanupChunks();
+  if (cleanupFn) await cleanupFn();
 }
 
 // Main transcribe command
 program
   .argument("[input]", "Audio file or YouTube URL to transcribe")
   .option("-o, --output <path>", "Output file path (default: input.md)")
-  .option("--api-key <key>", "OpenAI API key")
+  .option("--api-key <key>", "API key (ElevenLabs or OpenAI depending on provider)")
   .option("--timestamps", "Include timestamps in output")
   .option("--language <lang>", "Audio language (ISO-639-1 code, e.g., en, es)")
-  .option("-t, --translate", "Translate audio to English")
+  .option("-t, --translate", "Translate audio to English (whisper only)")
+  .option(
+    "-p, --provider <name>",
+    "Transcription provider: elevenlabs or whisper",
+    "elevenlabs"
+  )
   .action(async (input: string | undefined, options) => {
     if (!input) {
       program.help();
       return;
     }
 
-    try {
-      const provider = getProvider(input);
-      console.log(`Using provider: ${provider.name}`);
+    const provider = options.provider as TranscriptionProvider;
 
-      // Pass language hint so YouTube provider can fetch subs in the right language
-      const providerOpts = options.language ? { language: options.language } : undefined;
-      const source = await provider.getAudioSource(input, providerOpts);
+    try {
+      const providerSource = getProvider(input);
+      console.log(`Using provider: ${providerSource.name}`);
+
+      const providerOpts = options.language
+        ? { language: options.language }
+        : undefined;
+      const source = await providerSource.getAudioSource(input, providerOpts);
 
       const isRemote = source.originalInput !== source.filePath;
 
-      // If provider returned subtitles directly (YouTube captions), skip Whisper
+      // If provider returned subtitles directly (YouTube captions), skip transcription
       if (source.subtitles) {
         const markdown = generateMarkdown({
           filePath: source.filePath,
-          result: { text: source.subtitles.text, language: source.subtitles.language },
+          result: {
+            text: source.subtitles.text,
+            language: source.subtitles.language,
+          },
           isTranslation: options.translate,
           title: source.metadata?.title,
           sourceUrl: isRemote ? source.originalInput : undefined,
         });
 
-        const outputPath = getOutputPath(source.filePath, options.output, isRemote);
+        const outputPath = getOutputPath(
+          source.filePath,
+          options.output,
+          isRemote
+        );
         await Bun.write(outputPath, markdown);
         console.log(`Saved to: ${outputPath}`);
 
@@ -127,7 +176,6 @@ program
         return;
       }
 
-      // No subtitles — full Whisper transcription/translation
       await transcribeFile({
         filePath: source.filePath,
         apiKey: options.apiKey,
@@ -137,6 +185,7 @@ program
         translate: options.translate,
         title: source.metadata?.title,
         sourceUrl: isRemote ? source.originalInput : undefined,
+        provider,
       });
 
       if (source.cleanup) {
@@ -158,6 +207,11 @@ program
   .description("Record audio from microphone")
   .option("--timestamps", "Include timestamps in transcription")
   .option("--language <lang>", "Audio language (ISO-639-1 code, e.g., en, es)")
+  .option(
+    "-p, --provider <name>",
+    "Transcription provider: elevenlabs or whisper",
+    "elevenlabs"
+  )
   .action(async (name: string | undefined, options) => {
     try {
       const filePath = await record({ name });
@@ -171,6 +225,7 @@ program
           filePath,
           language: options.language,
           timestamps: options.timestamps,
+          provider: options.provider as TranscriptionProvider,
         });
       }
     } catch (error) {
@@ -187,9 +242,18 @@ program
 program
   .command("config")
   .description("Configure trans")
-  .option("--set-key", "Set OpenAI API key")
+  .option("--set-key", "Set API key for the selected provider")
+  .option(
+    "-p, --provider <name>",
+    "Provider to configure: elevenlabs or whisper",
+    "elevenlabs"
+  )
   .action(async (options) => {
     if (options.setKey) {
+      const provider = options.provider as TranscriptionProvider;
+      const providerLabel =
+        provider === "elevenlabs" ? "ElevenLabs" : "OpenAI";
+
       const readline = await import("readline");
       const rl = readline.createInterface({
         input: process.stdin,
@@ -197,7 +261,7 @@ program
       });
 
       const apiKey = await new Promise<string>((resolve) => {
-        rl.question("Enter your OpenAI API key: ", (answer) => {
+        rl.question(`Enter your ${providerLabel} API key: `, (answer) => {
           rl.close();
           resolve(answer.trim());
         });
@@ -208,7 +272,7 @@ program
         process.exit(1);
       }
 
-      await setApiKey(apiKey);
+      await setApiKey(provider, apiKey);
     } else {
       program.commands
         .find((cmd) => cmd.name() === "config")

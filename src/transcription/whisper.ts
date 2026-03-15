@@ -1,19 +1,9 @@
 import OpenAI, { toFile } from "openai";
 import { basename } from "path";
 import type { AudioChunk } from "../audio/splitter.ts";
+import type { TranscriptionSegment, TranscriptionResult } from "./types.ts";
 
-export interface TranscriptionSegment {
-  start: number;
-  end: number;
-  text: string;
-}
-
-export interface TranscriptionResult {
-  text: string;
-  segments?: TranscriptionSegment[];
-  language?: string;
-  duration?: number;
-}
+export type { TranscriptionSegment, TranscriptionResult };
 
 export interface TranscribeOptions {
   apiKey: string;
