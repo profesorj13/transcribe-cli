@@ -1,0 +1,21 @@
+{
+  "name": "transcribe-cli",
+  "version": "1.0.0",
+  "description": "CLI tool for audio transcription using OpenAI Whisper",
+  "type": "module",
+  "bin": {
+    "trans": "./bin/trans.ts"
+  },
+  "scripts": {
+    "dev": "bun run bin/transcribe.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "openai": "^4.77.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  }
+}
