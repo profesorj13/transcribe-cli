@@ -5,6 +5,17 @@ import type { TranscriptionSegment, TranscriptionResult } from "./types.ts";
 
 export type { TranscriptionSegment, TranscriptionResult };
 
+function handleOpenAIError(error: unknown): never {
+  if (error instanceof Error && "status" in error && (error as { status: number }).status === 401) {
+    throw new Error(
+      "La API key de OpenAI es inválida o expiró.\n" +
+        "Verifica tu clave en: https://platform.openai.com/api-keys\n" +
+        "Para configurar una nueva clave, ejecuta: trans config --set-key --provider whisper"
+    );
+  }
+  throw error;
+}
+
 export interface TranscribeOptions {
   apiKey: string;
   filePath: string;
@@ -22,38 +33,42 @@ export async function transcribeAudio(
   const buffer = await bunFile.arrayBuffer();
   const file = await toFile(buffer, basename(filePath));
 
-  if (timestamps) {
-    // Use verbose_json to get segments with timestamps
+  try {
+    if (timestamps) {
+      // Use verbose_json to get segments with timestamps
+      const response = await openai.audio.transcriptions.create({
+        file,
+        model: "whisper-1",
+        language,
+        response_format: "verbose_json",
+      });
+
+      return {
+        text: response.text,
+        segments: response.segments?.map((seg) => ({
+          start: seg.start,
+          end: seg.end,
+          text: seg.text,
+        })),
+        language: response.language,
+        duration: response.duration,
+      };
+    }
+
+    // Simple text response
     const response = await openai.audio.transcriptions.create({
       file,
       model: "whisper-1",
       language,
-      response_format: "verbose_json",
+      response_format: "text",
     });
 
     return {
-      text: response.text,
-      segments: response.segments?.map((seg) => ({
-        start: seg.start,
-        end: seg.end,
-        text: seg.text,
-      })),
-      language: response.language,
-      duration: response.duration,
+      text: response,
     };
+  } catch (error) {
+    handleOpenAIError(error);
   }
-
-  // Simple text response
-  const response = await openai.audio.transcriptions.create({
-    file,
-    model: "whisper-1",
-    language,
-    response_format: "text",
-  });
-
-  return {
-    text: response,
-  };
 }
 
 // Whisper translations API returns the same shape as verbose_json transcription
@@ -75,34 +90,38 @@ export async function translateAudio(
   const buffer = await bunFile.arrayBuffer();
   const file = await toFile(buffer, basename(filePath));
 
-  if (timestamps) {
+  try {
+    if (timestamps) {
+      const response = (await openai.audio.translations.create({
+        file,
+        model: "whisper-1",
+        response_format: "verbose_json",
+      })) as unknown as VerboseTranslation;
+
+      return {
+        text: response.text,
+        segments: response.segments?.map((seg) => ({
+          start: seg.start,
+          end: seg.end,
+          text: seg.text,
+        })),
+        language: response.language,
+        duration: response.duration,
+      };
+    }
+
     const response = (await openai.audio.translations.create({
       file,
       model: "whisper-1",
-      response_format: "verbose_json",
-    })) as unknown as VerboseTranslation;
+      response_format: "text",
+    })) as unknown as string;
 
     return {
-      text: response.text,
-      segments: response.segments?.map((seg) => ({
-        start: seg.start,
-        end: seg.end,
-        text: seg.text,
-      })),
-      language: response.language,
-      duration: response.duration,
+      text: response,
     };
+  } catch (error) {
+    handleOpenAIError(error);
   }
-
-  const response = (await openai.audio.translations.create({
-    file,
-    model: "whisper-1",
-    response_format: "text",
-  })) as unknown as string;
-
-  return {
-    text: response,
-  };
 }
 
 export interface ParallelTranscribeOptions {

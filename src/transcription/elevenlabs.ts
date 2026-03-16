@@ -76,13 +76,31 @@ export async function transcribeAudio(
   const buffer = await bunFile.arrayBuffer();
   const file = new File([buffer], basename(filePath));
 
-  const response = (await client.speechToText.convert({
-    modelId: "scribe_v2",
-    file,
-    languageCode: language,
-    timestampsGranularity: timestamps ? "word" : "none",
-    tagAudioEvents: false,
-  })) as SpeechToTextChunkResponseModel;
+  let response: SpeechToTextChunkResponseModel;
+  try {
+    response = (await client.speechToText.convert({
+      modelId: "scribe_v2",
+      file,
+      languageCode: language,
+      timestampsGranularity: timestamps ? "word" : "none",
+      tagAudioEvents: false,
+    })) as SpeechToTextChunkResponseModel;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.includes("401") ||
+        error.message.includes("Unauthorized") ||
+        error.message.includes("invalid_api_key") ||
+        error.message.includes("authentication"))
+    ) {
+      throw new Error(
+        "La API key de ElevenLabs es inválida o expiró.\n" +
+          "Verifica tu clave en: https://elevenlabs.io/app/settings/api-keys\n" +
+          "Para configurar una nueva clave, ejecuta: trans config --set-key --provider elevenlabs"
+      );
+    }
+    throw error;
+  }
 
   const words = (response.words ?? []) as WordEntry[];
   const lastWord = words.filter((w) => w.type === "word" && w.end != null).at(-1);
