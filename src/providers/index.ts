@@ -1,9 +1,11 @@
 import type { BaseProvider } from "./base.ts";
 import { FileProvider } from "./file.ts";
+import { GoogleDriveProvider } from "./gdrive.ts";
 import { YouTubeProvider } from "./youtube.ts";
 
 const providers: BaseProvider[] = [
   new YouTubeProvider(),
+  new GoogleDriveProvider(),
   new FileProvider(),
 ];
 
@@ -16,7 +18,7 @@ export function getProvider(input: string): BaseProvider {
 
   throw new Error(
     `No provider found for input: ${input}\n` +
-      "Supported formats: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, flac"
+      "Supported: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, flac, YouTube URLs, Google Drive URLs"
   );
 }
 
