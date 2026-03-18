@@ -46,7 +46,7 @@ export function RecordingView() {
     } catch (err) {
       // Even on error, transition to stopped so user isn't stuck
       const msg =
-        err instanceof Error ? err.message : "Error al detener la grabación";
+        typeof err === "string" ? err : err instanceof Error ? err.message : "Error al detener la grabación";
       setErrorMessage(msg);
       setStatus("stopped");
     }

@@ -1,6 +1,6 @@
 use std::process::Command as StdCommand;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
 
 pub struct RecordingState {
@@ -17,6 +17,46 @@ impl RecordingState {
             start_time: Mutex::new(None),
             output_path: Mutex::new(None),
             timer_running: Arc::new(Mutex::new(false)),
+        }
+    }
+}
+
+/// Kill a process by PID: try SIGINT first, wait up to `timeout`, then SIGKILL.
+fn kill_process_gracefully(pid: u32, timeout: Duration) {
+    unsafe {
+        libc::kill(pid as i32, libc::SIGINT);
+    }
+    let start = Instant::now();
+    loop {
+        std::thread::sleep(Duration::from_millis(100));
+        // Check if process is still alive (kill with signal 0)
+        let alive = unsafe { libc::kill(pid as i32, 0) } == 0;
+        if !alive {
+            return;
+        }
+        if start.elapsed() >= timeout {
+            unsafe {
+                libc::kill(pid as i32, libc::SIGKILL);
+            }
+            return;
+        }
+    }
+}
+
+/// Kill any orphan sox/ffmpeg recording processes left from previous sessions.
+pub fn cleanup_orphan_recorders() {
+    let path_env = get_path_with_homebrew();
+    let output = StdCommand::new("pgrep")
+        .args(["-f", "ffmpeg.*avfoundation|sox.*-d.*-t.*wav"])
+        .env("PATH", &path_env)
+        .output();
+
+    if let Ok(out) = output {
+        let pids = String::from_utf8_lossy(&out.stdout);
+        for line in pids.lines() {
+            if let Ok(pid) = line.trim().parse::<u32>() {
+                kill_process_gracefully(pid, Duration::from_secs(3));
+            }
         }
     }
 }
@@ -118,14 +158,14 @@ pub fn start_recording(
             .args(["-d", "-t", "wav", &output_path])
             .env("PATH", &path_env)
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
             .spawn()
             .map_err(|e| format!("Error al iniciar sox: {}", e))?,
         "ffmpeg" => StdCommand::new("ffmpeg")
             .args(["-f", "avfoundation", "-i", ":1", "-y", &output_path])
             .env("PATH", &path_env)
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
             .spawn()
             .map_err(|e| format!("Error al iniciar ffmpeg: {}", e))?,
         _ => return Err("Recorder no soportado".to_string()),
@@ -167,22 +207,12 @@ pub fn stop_recording(state: State<'_, RecordingState>) -> Result<serde_json::Va
         .unwrap_or(0);
 
     if let Some(mut child) = state.process.lock().unwrap().take() {
-        // Send SIGINT for clean shutdown
-        unsafe {
-            libc::kill(child.id() as i32, libc::SIGINT);
-        }
-        // Wait with timeout — don't block forever
         let pid = child.id();
-        let wait_handle = std::thread::spawn(move || child.wait());
-        match wait_handle.join() {
-            Ok(_) => {}
-            Err(_) => {
-                // Force kill if wait thread panicked
-                unsafe {
-                    libc::kill(pid as i32, libc::SIGKILL);
-                }
-            }
-        }
+        kill_process_gracefully(pid, Duration::from_secs(5));
+        // Reap the child process to avoid zombies
+        let _ = child.wait();
+        // Give filesystem a moment to flush
+        std::thread::sleep(Duration::from_millis(300));
     }
 
     let output_path = state
@@ -197,13 +227,13 @@ pub fn stop_recording(state: State<'_, RecordingState>) -> Result<serde_json::Va
     // Validate the recording file
     let path = std::path::Path::new(&output_path);
     if !path.exists() {
-        return Err("El archivo de grabación no se creó. Verificá que el micrófono esté conectado.".to_string());
+        return Err(format!("El archivo de grabación no se creó ({}). Verificá que el micrófono esté conectado.", output_path));
     }
     let metadata = std::fs::metadata(path).map_err(|e| format!("Error al verificar grabación: {}", e))?;
     if metadata.len() < 1000 {
         // WAV header is ~44 bytes, anything under 1KB is effectively empty
         let _ = std::fs::remove_file(path);
-        return Err("La grabación está vacía. Verificá que el micrófono esté funcionando.".to_string());
+        return Err(format!("La grabación está vacía ({} bytes en {}). Verificá que el micrófono esté funcionando.", metadata.len(), output_path));
     }
 
     Ok(serde_json::json!({
@@ -216,11 +246,8 @@ pub fn stop_recording(state: State<'_, RecordingState>) -> Result<serde_json::Va
 pub fn cancel_recording(state: State<'_, RecordingState>) -> Result<(), String> {
     *state.timer_running.lock().unwrap() = false;
 
-    if let Some(mut child) = state.process.lock().unwrap().take() {
-        unsafe {
-            libc::kill(child.id() as i32, libc::SIGINT);
-        }
-        let _ = child.wait();
+    if let Some(child) = state.process.lock().unwrap().take() {
+        kill_process_gracefully(child.id(), Duration::from_secs(3));
     }
 
     if let Some(path) = state.output_path.lock().unwrap().take() {

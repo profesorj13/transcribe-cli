@@ -36,7 +36,6 @@ fn find_bun() -> Result<String, String> {
 
 fn get_project_root() -> Result<std::path::PathBuf, String> {
     // Walk up from cwd until we find bin/trans.ts
-    // Tauri runs from src-tauri/, so we need to go up 2 levels to transcribe-cli/
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
     let mut dir = cwd.as_path();
 
@@ -50,9 +49,18 @@ fn get_project_root() -> Result<std::path::PathBuf, String> {
         }
     }
 
+    // Fallback: use compile-time project root (CARGO_MANIFEST_DIR = .../desktop/src-tauri)
+    let build_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if let Some(project_root) = build_dir.parent().and_then(|p| p.parent()) {
+        if project_root.join("bin/trans.ts").exists() {
+            return Ok(project_root.to_path_buf());
+        }
+    }
+
     Err(format!(
-        "No se encontró bin/trans.ts buscando desde: {}",
-        cwd.display()
+        "No se encontró bin/trans.ts buscando desde: {} ni desde build dir: {}",
+        cwd.display(),
+        build_dir.display()
     ))
 }
 

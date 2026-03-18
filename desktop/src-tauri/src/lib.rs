@@ -14,6 +14,8 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            // Kill any orphan recording processes from previous sessions
+            commands::recording::cleanup_orphan_recorders();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

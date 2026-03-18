@@ -51,12 +51,14 @@ pub fn save_config(config: AppConfig) -> Result<(), String> {
 }
 
 fn check_dep(name: &str) -> DependencyStatus {
-    let result = Command::new("which").arg(name).output();
+    let path_env = super::recording::get_path_with_homebrew();
+    let result = Command::new("which").arg(name).env("PATH", &path_env).output();
     match result {
         Ok(output) if output.status.success() => {
             // Try to get version
             let version = Command::new(name)
                 .arg("--version")
+                .env("PATH", &path_env)
                 .output()
                 .ok()
                 .and_then(|v| {

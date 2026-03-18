@@ -25,7 +25,7 @@ export function RecordingDone() {
     reset,
   } = useRecordingStore();
 
-  const { setErrorMessage } = useRecordingStore();
+  const { errorMessage, setErrorMessage } = useRecordingStore();
   const [outputDir, setOutputDir] = useState<string>("~/Desktop");
 
   useEffect(() => {
@@ -35,7 +35,10 @@ export function RecordingDone() {
   }, []);
 
   const handleTranscribe = async () => {
-    if (!filePath) return;
+    if (!filePath) {
+      setErrorMessage("No se encontró el archivo de grabación. Intentá grabar de nuevo.");
+      return;
+    }
     setStatus("transcribing");
     setErrorMessage(null);
 
@@ -64,7 +67,7 @@ export function RecordingDone() {
         translate: options.translate,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al iniciar la transcripción";
+      const msg = typeof err === "string" ? err : err instanceof Error ? err.message : "Error al iniciar la transcripción";
       setErrorMessage(msg);
       setStatus("error");
       unlistenDone?.();
@@ -99,12 +102,19 @@ export function RecordingDone() {
       {/* Recording info */}
       <div className="text-center">
         <h2 className="text-[16px] font-semibold text-neutral-900 dark:text-neutral-100">
-          {S.recordingSaved}
+          {filePath ? S.recordingSaved : "Error en la grabación"}
         </h2>
         <p className="text-[13px] text-neutral-500 mt-1">
-          {fileName} — {formatDuration(duration)}
+          {filePath ? `${fileName} — ${formatDuration(duration)}` : "El archivo no se guardó correctamente"}
         </p>
       </div>
+
+      {/* Error message */}
+      {errorMessage && (
+        <div className="px-3 py-2 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800/30">
+          <p className="text-[12px] text-red-600 dark:text-red-400">{errorMessage}</p>
+        </div>
+      )}
 
       {/* Options */}
       <div className="space-y-3 bg-white dark:bg-neutral-800/50 rounded-xl p-4 border border-neutral-200 dark:border-neutral-700/50">
