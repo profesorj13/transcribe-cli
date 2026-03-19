@@ -5,7 +5,7 @@ import * as whisper from "./transcription/whisper.ts";
 import * as elevenlabs from "./transcription/elevenlabs.ts";
 import type { TranscriptionProvider } from "./transcription/types.ts";
 import { generateMarkdown, getOutputPath } from "./output/markdown.ts";
-import { record, askYesNo } from "./recording/recorder.ts";
+import { record, askYesNo, askNumber } from "./recording/recorder.ts";
 import { splitAudio } from "./audio/splitter.ts";
 
 program
@@ -23,6 +23,8 @@ interface TranscribeFileOptions {
   title?: string;
   sourceUrl?: string;
   provider: TranscriptionProvider;
+  speakers?: boolean;
+  numSpeakers?: number;
 }
 
 async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
@@ -35,6 +37,8 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
     title,
     sourceUrl,
     provider,
+    speakers,
+    numSpeakers,
   } = options;
 
   const apiKey = await resolveApiKey(provider, options.apiKey);
@@ -42,6 +46,13 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
   if (translate && provider === "elevenlabs") {
     console.error(
       "Translation is not supported with ElevenLabs. Use --provider whisper for translation."
+    );
+    process.exit(1);
+  }
+
+  if (speakers && provider === "whisper") {
+    console.error(
+      "Speaker diarization is not supported with Whisper. Use --provider elevenlabs for speaker identification."
     );
     process.exit(1);
   }
@@ -60,6 +71,8 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
       filePath,
       language,
       timestamps,
+      diarize: speakers,
+      numSpeakers,
     });
   } else {
     // Whisper: split if needed (25MB limit)
@@ -107,6 +120,7 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
     title,
     sourceUrl,
     model,
+    hasSpeakers: speakers,
   });
 
   const isRemote = !!sourceUrl;
@@ -127,6 +141,8 @@ program
   .option("--timestamps", "Include timestamps in output")
   .option("--language <lang>", "Audio language (ISO-639-1 code, e.g., en, es)")
   .option("-t, --translate", "Translate audio to English (whisper only)")
+  .option("--speakers", "Identify speakers (elevenlabs only)")
+  .option("--num-speakers <n>", "Expected number of speakers (improves accuracy)", parseInt)
   .option(
     "-p, --provider <name>",
     "Transcription provider: elevenlabs or whisper",
@@ -183,6 +199,8 @@ program
         language: options.language,
         timestamps: options.timestamps,
         translate: options.translate,
+        speakers: options.speakers,
+        numSpeakers: options.numSpeakers,
         title: source.metadata?.title,
         sourceUrl: isRemote ? source.originalInput : undefined,
         provider,
@@ -207,6 +225,8 @@ program
   .description("Record audio from microphone")
   .option("--timestamps", "Include timestamps in transcription")
   .option("--language <lang>", "Audio language (ISO-639-1 code, e.g., en, es)")
+  .option("--speakers", "Identify speakers (elevenlabs only)")
+  .option("--num-speakers <n>", "Expected number of speakers (improves accuracy)", parseInt)
   .option(
     "-p, --provider <name>",
     "Transcription provider: elevenlabs or whisper",
@@ -220,12 +240,27 @@ program
       const shouldTranscribe = await askYesNo("Transcribir ahora?");
 
       if (shouldTranscribe) {
+        let speakers = options.speakers || false;
+        let numSpeakers = options.numSpeakers;
+        const provider = options.provider as TranscriptionProvider;
+
+        // Interactive speaker diarization prompt (only for elevenlabs, only if not already set via flags)
+        if (provider === "elevenlabs" && !options.speakers) {
+          console.log("");
+          speakers = await askYesNo("Detectar hablantes?");
+          if (speakers) {
+            numSpeakers = await askNumber("Cuántos hablantes? (0 = auto-detectar)", 0);
+          }
+        }
+
         console.log("");
         await transcribeFile({
           filePath,
           language: options.language,
           timestamps: options.timestamps,
-          provider: options.provider as TranscriptionProvider,
+          speakers,
+          numSpeakers,
+          provider,
         });
       }
     } catch (error) {

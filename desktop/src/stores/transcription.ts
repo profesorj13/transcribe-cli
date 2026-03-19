@@ -33,6 +33,8 @@ const defaultOptions: TranscribeOptions = {
   language: "auto",
   timestamps: false,
   translate: false,
+  speakers: false,
+  numSpeakers: 0,
 };
 
 export const useTranscriptionStore = create<TranscriptionState>((set) => ({

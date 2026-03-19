@@ -8,6 +8,8 @@ export interface ElevenLabsTranscribeOptions {
   filePath: string;
   language?: string;
   timestamps?: boolean;
+  diarize?: boolean;
+  numSpeakers?: number;
 }
 
 interface WordEntry {
@@ -15,42 +17,21 @@ interface WordEntry {
   start?: number;
   end?: number;
   type: string;
+  speakerId?: string;
 }
 
 /**
  * Groups word-level timestamps into sentence-like segments.
- * Splits on sentence-ending punctuation or every ~20 words.
+ * Splits on sentence-ending punctuation, every ~20 words,
+ * or on speaker change when diarize is enabled.
  */
-function wordsToSegments(words: WordEntry[]): TranscriptionSegment[] {
+function wordsToSegments(words: WordEntry[], diarize?: boolean): TranscriptionSegment[] {
   const segments: TranscriptionSegment[] = [];
   let buffer: WordEntry[] = [];
   let wordCount = 0;
+  let currentSpeaker: string | undefined;
 
-  for (const word of words) {
-    buffer.push(word);
-    if (word.type === "word") wordCount++;
-
-    const endsWithPunctuation =
-      word.type === "word" && /[.!?]$/.test(word.text.trim());
-
-    if (endsWithPunctuation || wordCount >= 20) {
-      const actualWords = buffer.filter(
-        (w) => w.type === "word" && w.start != null && w.end != null
-      );
-      if (actualWords.length > 0) {
-        segments.push({
-          start: actualWords[0]!.start!,
-          end: actualWords.at(-1)!.end!,
-          text: buffer.map((w) => w.text).join("").trim(),
-        });
-      }
-      buffer = [];
-      wordCount = 0;
-    }
-  }
-
-  // Remaining words
-  if (buffer.length > 0) {
+  const flushBuffer = () => {
     const actualWords = buffer.filter(
       (w) => w.type === "word" && w.start != null && w.end != null
     );
@@ -59,8 +40,38 @@ function wordsToSegments(words: WordEntry[]): TranscriptionSegment[] {
         start: actualWords[0]!.start!,
         end: actualWords.at(-1)!.end!,
         text: buffer.map((w) => w.text).join("").trim(),
+        speakerId: diarize ? currentSpeaker : undefined,
       });
     }
+    buffer = [];
+    wordCount = 0;
+  };
+
+  for (const word of words) {
+    // Split on speaker change
+    if (diarize && word.type === "word" && word.speakerId !== currentSpeaker && buffer.length > 0) {
+      flushBuffer();
+    }
+
+    buffer.push(word);
+    if (word.type === "word") {
+      wordCount++;
+      if (diarize && word.speakerId) {
+        currentSpeaker = word.speakerId;
+      }
+    }
+
+    const endsWithPunctuation =
+      word.type === "word" && /[.!?]$/.test(word.text.trim());
+
+    if (endsWithPunctuation || wordCount >= 20) {
+      flushBuffer();
+    }
+  }
+
+  // Remaining words
+  if (buffer.length > 0) {
+    flushBuffer();
   }
 
   return segments;
@@ -69,12 +80,15 @@ function wordsToSegments(words: WordEntry[]): TranscriptionSegment[] {
 export async function transcribeAudio(
   options: ElevenLabsTranscribeOptions
 ): Promise<TranscriptionResult> {
-  const { apiKey, filePath, language, timestamps } = options;
+  const { apiKey, filePath, language, timestamps, diarize, numSpeakers } = options;
 
   const client = new ElevenLabsClient({ apiKey });
   const bunFile = Bun.file(filePath);
   const buffer = await bunFile.arrayBuffer();
   const file = new File([buffer], basename(filePath));
+
+  // Diarization requires word-level timestamps
+  const needTimestamps = timestamps || diarize;
 
   let response: SpeechToTextChunkResponseModel;
   try {
@@ -82,8 +96,10 @@ export async function transcribeAudio(
       modelId: "scribe_v2",
       file,
       languageCode: language,
-      timestampsGranularity: timestamps ? "word" : "none",
+      timestampsGranularity: needTimestamps ? "word" : "none",
       tagAudioEvents: false,
+      diarize: diarize || undefined,
+      ...(diarize && numSpeakers && numSpeakers > 0 ? { numSpeakers } : {}),
     })) as SpeechToTextChunkResponseModel;
   } catch (error) {
     if (
@@ -108,7 +124,7 @@ export async function transcribeAudio(
 
   return {
     text: response.text,
-    segments: timestamps ? wordsToSegments(words) : undefined,
+    segments: needTimestamps ? wordsToSegments(words, diarize) : undefined,
     language: response.languageCode,
     duration,
   };

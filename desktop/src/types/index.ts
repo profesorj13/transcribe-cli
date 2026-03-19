@@ -21,6 +21,8 @@ export interface TranscribeOptions {
   language: string;
   timestamps: boolean;
   translate: boolean;
+  speakers: boolean;
+  numSpeakers: number;
 }
 
 export interface TranscriptionProgress {

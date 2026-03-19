@@ -86,6 +86,8 @@ export function TranscribeView() {
         language: options.language,
         timestamps: options.timestamps,
         translate: options.translate,
+        speakers: options.speakers,
+        numSpeakers: options.numSpeakers,
       });
     } catch {
       setStatus("error");
@@ -243,6 +245,30 @@ export function TranscribeView() {
             checked={options.translate}
             onChange={(v) => setOptions({ translate: v })}
           />
+        )}
+        {options.provider === "elevenlabs" && (
+          <>
+            <Toggle
+              label={S.speakers}
+              description={S.speakersDesc}
+              checked={options.speakers}
+              onChange={(v) => setOptions({ speakers: v })}
+            />
+            {options.speakers && (
+              <Select
+                label={S.numSpeakers}
+                options={[
+                  { value: "0", label: S.numSpeakersAuto },
+                  ...Array.from({ length: 9 }, (_, i) => ({
+                    value: String(i + 2),
+                    label: String(i + 2),
+                  })),
+                ]}
+                value={String(options.numSpeakers)}
+                onChange={(v) => setOptions({ numSpeakers: parseInt(v) })}
+              />
+            )}
+          </>
         )}
       </div>
 

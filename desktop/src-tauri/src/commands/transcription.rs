@@ -72,6 +72,8 @@ pub async fn transcribe(
     language: String,
     timestamps: bool,
     translate: bool,
+    speakers: bool,
+    num_speakers: u32,
 ) -> Result<(), String> {
     let bun_path = find_bun()?;
     let project_root = get_project_root()?;
@@ -96,6 +98,15 @@ pub async fn transcribe(
 
     if translate {
         args.push("--translate".to_string());
+    }
+
+    if speakers {
+        args.push("--speakers".to_string());
+    }
+
+    if num_speakers > 0 {
+        args.push("--num-speakers".to_string());
+        args.push(num_speakers.to_string());
     }
 
     let mut child = Command::new(&bun_path)
@@ -179,15 +190,21 @@ pub async fn transcribe(
         let preview = std::fs::read_to_string(path)
             .ok()
             .map(|content| {
-                // Skip markdown frontmatter/header, take first ~300 chars of content
-                let text: String = content
-                    .lines()
-                    .skip_while(|l| l.starts_with('#') || l.starts_with("---") || l.trim().is_empty())
-                    .take(10)
+                // Skip header and metadata, start from content after first "---" separator
+                let lines: Vec<&str> = content.lines().collect();
+                let body_start = lines.iter()
+                    .position(|l| l.trim() == "---")
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+                let text: String = lines[body_start..]
+                    .iter()
+                    .filter(|l| !l.trim().is_empty())
+                    .take(20)
+                    .copied()
                     .collect::<Vec<&str>>()
                     .join("\n");
-                if text.len() > 300 {
-                    format!("{}...", &text[..300])
+                if text.len() > 800 {
+                    format!("{}...", &text[..800])
                 } else {
                     text
                 }

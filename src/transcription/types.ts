@@ -2,6 +2,7 @@ export interface TranscriptionSegment {
   start: number;
   end: number;
   text: string;
+  speakerId?: string;
 }
 
 export interface TranscriptionResult {

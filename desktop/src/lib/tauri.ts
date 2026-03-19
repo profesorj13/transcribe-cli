@@ -47,6 +47,8 @@ export async function transcribe(args: {
   language: string;
   timestamps: boolean;
   translate: boolean;
+  speakers: boolean;
+  numSpeakers: number;
 }): Promise<void> {
   return invoke("transcribe", args);
 }

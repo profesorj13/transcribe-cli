@@ -11,6 +11,7 @@ export interface MarkdownOptions {
   title?: string;
   sourceUrl?: string;
   model?: string;
+  hasSpeakers?: boolean;
 }
 
 function formatTime(seconds: number): string {
@@ -20,7 +21,7 @@ function formatTime(seconds: number): string {
 }
 
 export function generateMarkdown(options: MarkdownOptions): string {
-  const { filePath, result, includeTimestamps, chunksCount, isTranslation, title, sourceUrl, model } = options;
+  const { filePath, result, includeTimestamps, chunksCount, isTranslation, title, sourceUrl, model, hasSpeakers } = options;
   const fileName = basename(filePath);
   const date = new Date().toISOString().split("T")[0];
 
@@ -51,14 +52,52 @@ export function generateMarkdown(options: MarkdownOptions): string {
     markdown += `\n**Procesado en:** ${chunksCount} partes (paralelo)`;
   }
 
-  markdown += `
+  // Count unique speakers
+  if (hasSpeakers && result.segments) {
+    const speakers = new Set(result.segments.map((s) => s.speakerId).filter(Boolean));
+    if (speakers.size > 0) {
+      markdown += `\n**Hablantes:** ${speakers.size} identificados`;
+    }
+  }
+
+  markdown += `\n\n---\n\n`;
+
+  // Render body with speaker labels if diarization is active
+  if (hasSpeakers && result.segments && result.segments.some((s) => s.speakerId)) {
+    let lastSpeaker: string | undefined;
+    for (const segment of result.segments) {
+      if (segment.speakerId !== lastSpeaker) {
+        if (lastSpeaker !== undefined) markdown += "\n\n";
+        markdown += `**Hablante ${segment.speakerId}:** ${segment.text}`;
+        lastSpeaker = segment.speakerId;
+      } else {
+        markdown += ` ${segment.text}`;
+      }
+    }
+  } else {
+    markdown += result.text;
+  }
+
+  if (includeTimestamps && result.segments && result.segments.length > 0) {
+    const showSpeakerCol = hasSpeakers && result.segments.some((s) => s.speakerId);
+
+    if (showSpeakerCol) {
+      markdown += `
 
 ---
 
-${result.text}`;
+## Segmentos con timestamps
 
-  if (includeTimestamps && result.segments && result.segments.length > 0) {
-    markdown += `
+| Inicio | Fin | Hablante | Texto |
+|--------|-----|----------|-------|
+`;
+      for (const segment of result.segments) {
+        const text = segment.text.trim().replace(/\|/g, "\\|");
+        const speaker = segment.speakerId || "-";
+        markdown += `| ${formatTime(segment.start)} | ${formatTime(segment.end)} | ${speaker} | ${text} |\n`;
+      }
+    } else {
+      markdown += `
 
 ---
 
@@ -67,10 +106,10 @@ ${result.text}`;
 | Inicio | Fin | Texto |
 |--------|-----|-------|
 `;
-
-    for (const segment of result.segments) {
-      const text = segment.text.trim().replace(/\|/g, "\\|");
-      markdown += `| ${formatTime(segment.start)} | ${formatTime(segment.end)} | ${text} |\n`;
+      for (const segment of result.segments) {
+        const text = segment.text.trim().replace(/\|/g, "\\|");
+        markdown += `| ${formatTime(segment.start)} | ${formatTime(segment.end)} | ${text} |\n`;
+      }
     }
   }
 

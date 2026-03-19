@@ -65,6 +65,8 @@ export function RecordingDone() {
         language: options.language,
         timestamps: options.timestamps,
         translate: options.translate,
+        speakers: options.speakers,
+        numSpeakers: options.numSpeakers,
       });
     } catch (err) {
       const msg = typeof err === "string" ? err : err instanceof Error ? err.message : "Error al iniciar la transcripción";
@@ -135,6 +137,30 @@ export function RecordingDone() {
           checked={options.timestamps}
           onChange={(v) => setOptions({ timestamps: v })}
         />
+        {options.provider === "elevenlabs" && (
+          <>
+            <Toggle
+              label={S.speakers}
+              description={S.speakersDesc}
+              checked={options.speakers}
+              onChange={(v) => setOptions({ speakers: v })}
+            />
+            {options.speakers && (
+              <Select
+                label={S.numSpeakers}
+                options={[
+                  { value: "0", label: S.numSpeakersAuto },
+                  ...Array.from({ length: 9 }, (_, i) => ({
+                    value: String(i + 2),
+                    label: String(i + 2),
+                  })),
+                ]}
+                value={String(options.numSpeakers)}
+                onChange={(v) => setOptions({ numSpeakers: parseInt(v) })}
+              />
+            )}
+          </>
+        )}
       </div>
 
       {/* Output folder */}

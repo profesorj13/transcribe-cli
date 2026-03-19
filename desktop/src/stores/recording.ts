@@ -28,6 +28,8 @@ const defaultOptions: TranscribeOptions = {
   language: "es",
   timestamps: false,
   translate: false,
+  speakers: false,
+  numSpeakers: 0,
 };
 
 export const useRecordingStore = create<RecordingState>((set) => ({

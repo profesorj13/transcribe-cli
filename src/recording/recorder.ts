@@ -119,6 +119,22 @@ async function waitForEnter(): Promise<void> {
   });
 }
 
+export async function askNumber(question: string, defaultValue: number = 0): Promise<number> {
+  const readline = await import("readline");
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(`${question} [${defaultValue}]: `, (answer) => {
+      rl.close();
+      const num = parseInt(answer.trim());
+      resolve(isNaN(num) ? defaultValue : num);
+    });
+  });
+}
+
 export async function askYesNo(question: string): Promise<boolean> {
   process.stdout.write(`${question} (y/n): `);
 

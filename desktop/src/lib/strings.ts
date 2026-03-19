@@ -45,6 +45,10 @@ export const S = {
   translateToEnglish: "Traducir al inglés",
   whisperOnly: "(solo Whisper)",
   autoDetect: "Auto-detectar",
+  speakers: "Identificar hablantes",
+  speakersDesc: "(solo ElevenLabs)",
+  numSpeakers: "Cantidad de hablantes",
+  numSpeakersAuto: "Auto-detectar",
 
   // Settings
   settings: "Configuración",
