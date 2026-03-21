@@ -33,6 +33,7 @@ export interface TranscriptionProgress {
 export interface TranscriptionResult {
   outputPath: string;
   preview: string;
+  speakers?: string[];
 }
 
 export interface AppConfig {

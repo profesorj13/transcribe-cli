@@ -27,6 +27,7 @@ pub fn run() {
             commands::recording::stop_recording,
             commands::recording::cancel_recording,
             commands::transcription::transcribe,
+            commands::transcription::rename_speakers,
             commands::files::open_file_dialog,
             commands::files::get_recent_files,
             commands::files::open_file,

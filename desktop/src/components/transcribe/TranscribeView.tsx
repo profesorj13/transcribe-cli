@@ -95,8 +95,9 @@ export function TranscribeView() {
   };
 
   const handleBack = () => {
-    reset();
     navigate("home");
+    // Reset AFTER exit animation completes to avoid blank screen
+    setTimeout(() => reset(), 250);
   };
 
   // Show result

@@ -53,6 +53,14 @@ export async function transcribe(args: {
   return invoke("transcribe", args);
 }
 
+// Speaker rename
+export async function renameSpeakers(
+  filePath: string,
+  mapping: Record<string, string>,
+): Promise<string> {
+  return invoke("rename_speakers", { filePath, mapping });
+}
+
 // File commands
 export async function openFileDialog(): Promise<string | null> {
   return invoke("open_file_dialog");
@@ -92,10 +100,10 @@ export function onTranscriptionProgress(
 }
 
 export function onTranscriptionDone(
-  callback: (result: { outputPath: string; preview: string }) => void,
+  callback: (result: { outputPath: string; preview: string; speakers?: string[] }) => void,
 ): Promise<UnlistenFn> {
   return listen("transcription:done", (event) =>
-    callback(event.payload as { outputPath: string; preview: string }),
+    callback(event.payload as { outputPath: string; preview: string; speakers?: string[] }),
   );
 }
 

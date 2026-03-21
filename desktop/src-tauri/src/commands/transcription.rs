@@ -187,35 +187,47 @@ pub async fn transcribe(
     // Process succeeded — track in history and emit done
     if let Some(ref path) = output_path {
         let _ = super::files::track_file(path);
-        let preview = std::fs::read_to_string(path)
-            .ok()
-            .map(|content| {
-                // Skip header and metadata, start from content after first "---" separator
-                let lines: Vec<&str> = content.lines().collect();
-                let body_start = lines.iter()
-                    .position(|l| l.trim() == "---")
-                    .map(|i| i + 1)
-                    .unwrap_or(0);
-                let text: String = lines[body_start..]
-                    .iter()
-                    .filter(|l| !l.trim().is_empty())
-                    .take(20)
-                    .copied()
-                    .collect::<Vec<&str>>()
-                    .join("\n");
-                if text.len() > 800 {
-                    format!("{}...", &text[..800])
-                } else {
-                    text
+        let file_content = std::fs::read_to_string(path).unwrap_or_default();
+
+        // Extract preview
+        let lines: Vec<&str> = file_content.lines().collect();
+        let body_start = lines.iter()
+            .position(|l| l.trim() == "---")
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let text: String = lines[body_start..]
+            .iter()
+            .filter(|l| !l.trim().is_empty())
+            .take(20)
+            .copied()
+            .collect::<Vec<&str>>()
+            .join("\n");
+        let preview = if text.len() > 800 {
+            format!("{}...", &text[..800])
+        } else {
+            text
+        };
+
+        // Extract unique speaker IDs from markdown
+        let mut speakers: Vec<String> = Vec::new();
+        let prefix = "**Hablante ";
+        for line in file_content.lines() {
+            if let Some(rest) = line.strip_prefix(prefix) {
+                if let Some(id) = rest.split(":**").next() {
+                    let id = id.to_string();
+                    if !speakers.contains(&id) {
+                        speakers.push(id);
+                    }
                 }
-            })
-            .unwrap_or_default();
+            }
+        }
 
         let _ = app.emit(
             "transcription:done",
             serde_json::json!({
                 "outputPath": path,
-                "preview": preview
+                "preview": preview,
+                "speakers": speakers
             }),
         );
     } else {
@@ -226,4 +238,47 @@ pub async fn transcribe(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn rename_speakers(
+    file_path: String,
+    mapping: std::collections::HashMap<String, String>,
+) -> Result<String, String> {
+    let mut content = std::fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
+
+    for (old_id, new_name) in &mapping {
+        content = content.replace(
+            &format!("**Hablante {}:**", old_id),
+            &format!("**Hablante {}:**", new_name),
+        );
+        content = content.replace(
+            &format!("| {} |", old_id),
+            &format!("| {} |", new_name),
+        );
+    }
+
+    std::fs::write(&file_path, &content).map_err(|e| e.to_string())?;
+
+    // Return updated preview
+    let lines: Vec<&str> = content.lines().collect();
+    let body_start = lines
+        .iter()
+        .position(|l| l.trim() == "---")
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let text: String = lines[body_start..]
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .take(20)
+        .copied()
+        .collect::<Vec<&str>>()
+        .join("\n");
+    let preview = if text.len() > 800 {
+        format!("{}...", &text[..800])
+    } else {
+        text
+    };
+
+    Ok(preview)
 }

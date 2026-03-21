@@ -66,6 +66,12 @@ export const S = {
   installed: "Instalado",
   notInstalled: "No instalado",
 
+  // Speaker rename
+  editSpeakers: "Editar hablantes",
+  speakerNamePlaceholder: "Nombre real",
+  speakersRenamed: "Hablantes renombrados",
+  confirm: "Confirmar",
+
   // Errors
   noApiKey: "No se encontró la clave API.",
   configure: "Configurar",

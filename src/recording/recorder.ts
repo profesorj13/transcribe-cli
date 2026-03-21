@@ -135,6 +135,21 @@ export async function askNumber(question: string, defaultValue: number = 0): Pro
   });
 }
 
+export async function askText(question: string): Promise<string> {
+  const readline = await import("readline");
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(`${question}: `, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
 export async function askYesNo(question: string): Promise<boolean> {
   process.stdout.write(`${question} (y/n): `);
 

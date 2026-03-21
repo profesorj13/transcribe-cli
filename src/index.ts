@@ -5,7 +5,7 @@ import * as whisper from "./transcription/whisper.ts";
 import * as elevenlabs from "./transcription/elevenlabs.ts";
 import type { TranscriptionProvider } from "./transcription/types.ts";
 import { generateMarkdown, getOutputPath } from "./output/markdown.ts";
-import { record, askYesNo, askNumber } from "./recording/recorder.ts";
+import { record, askYesNo, askNumber, askText } from "./recording/recorder.ts";
 import { splitAudio } from "./audio/splitter.ts";
 
 program
@@ -129,6 +129,34 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
   console.log(
     `\n${translate ? "Translation" : "Transcription"} saved to: ${outputPath}`
   );
+
+  // Post-processing: rename speakers
+  if (speakers && result.segments) {
+    const speakerIds = [...new Set(result.segments.map(s => s.speakerId).filter(Boolean))] as string[];
+
+    if (speakerIds.length > 0 && process.stdin.isTTY) {
+      console.log("");
+      const shouldRename = await askYesNo("¿Renombrar hablantes?");
+
+      if (shouldRename) {
+        const mapping: Record<string, string> = {};
+        for (const id of speakerIds) {
+          const name = await askText(`  Nombre para ${id}`);
+          if (name) mapping[id] = name;
+        }
+
+        if (Object.keys(mapping).length > 0) {
+          let content = await Bun.file(outputPath).text();
+          for (const [oldId, newName] of Object.entries(mapping)) {
+            content = content.replaceAll(`**Hablante ${oldId}:**`, `**Hablante ${newName}:**`);
+            content = content.replaceAll(`| ${oldId} |`, `| ${newName} |`);
+          }
+          await Bun.write(outputPath, content);
+          console.log("Hablantes renombrados.");
+        }
+      }
+    }
+  }
 
   if (cleanupFn) await cleanupFn();
 }
