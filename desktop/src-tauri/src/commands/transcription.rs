@@ -74,6 +74,7 @@ pub async fn transcribe(
     translate: bool,
     speakers: bool,
     num_speakers: u32,
+    output_dir: Option<String>,
 ) -> Result<(), String> {
     let bun_path = find_bun()?;
     let project_root = get_project_root()?;
@@ -107,6 +108,11 @@ pub async fn transcribe(
     if num_speakers > 0 {
         args.push("--num-speakers".to_string());
         args.push(num_speakers.to_string());
+    }
+
+    if let Some(ref dir) = output_dir {
+        args.push("--output-dir".to_string());
+        args.push(dir.clone());
     }
 
     let mut child = Command::new(&bun_path)

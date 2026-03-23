@@ -131,22 +131,24 @@ function findAvailableMdPath(filePath: string): string {
   }
 }
 
-export function getOutputPath(inputPath: string, customOutput?: string, cwdFallback?: boolean): string {
+export function getOutputPath(inputPath: string, customOutput?: string, cwdFallback?: boolean, outputDir?: string): string {
   if (customOutput) {
     return customOutput;
   }
 
   let mdPath: string;
+  const name = basename(inputPath);
+  const lastDot = name.lastIndexOf(".");
+  const mdName = lastDot === -1 ? `${name}.md` : `${name.slice(0, lastDot)}.md`;
 
-  if (cwdFallback) {
+  if (outputDir) {
+    // Explicit output directory
+    mdPath = join(outputDir, mdName);
+  } else if (cwdFallback) {
     // For remote sources (YouTube, URLs), save in cwd
-    const name = basename(inputPath);
-    const lastDot = name.lastIndexOf(".");
-    const mdName = lastDot === -1 ? `${name}.md` : `${name.slice(0, lastDot)}.md`;
     mdPath = join(process.cwd(), mdName);
   } else {
     // Replace extension with .md (local files)
-    const lastDot = inputPath.lastIndexOf(".");
     if (lastDot === -1) {
       mdPath = `${inputPath}.md`;
     } else {

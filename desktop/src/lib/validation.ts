@@ -13,6 +13,9 @@ const SUPPORTED_EXTENSIONS = [
 const YOUTUBE_REGEX =
   /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)/;
 
+const INSTAGRAM_REGEX =
+  /^(https?:\/\/)?(www\.)?instagram\.com\/(p|reel|reels|tv)\/[\w-]+/;
+
 export function isValidAudioFile(fileName: string): boolean {
   const ext = fileName.split(".").pop()?.toLowerCase();
   return ext ? SUPPORTED_EXTENSIONS.includes(ext) : false;
@@ -22,8 +25,12 @@ export function isYouTubeUrl(url: string): boolean {
   return YOUTUBE_REGEX.test(url);
 }
 
+export function isInstagramUrl(url: string): boolean {
+  return INSTAGRAM_REGEX.test(url);
+}
+
 export function isSupportedUrl(url: string): boolean {
-  return isYouTubeUrl(url);
+  return isYouTubeUrl(url) || isInstagramUrl(url);
 }
 
 export function getSupportedExtensions(): string[] {

@@ -17,6 +17,7 @@ interface TranscribeFileOptions {
   filePath: string;
   apiKey?: string;
   output?: string;
+  outputDir?: string;
   language?: string;
   timestamps?: boolean;
   translate?: boolean;
@@ -31,6 +32,7 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
   const {
     filePath,
     output,
+    outputDir,
     language,
     timestamps,
     translate,
@@ -124,7 +126,7 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
   });
 
   const isRemote = !!sourceUrl;
-  const outputPath = getOutputPath(filePath, output, isRemote);
+  const outputPath = getOutputPath(filePath, output, isRemote, outputDir);
   await Bun.write(outputPath, markdown);
   console.log(
     `\n${translate ? "Translation" : "Transcription"} saved to: ${outputPath}`
@@ -165,6 +167,7 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
 program
   .argument("[input]", "Audio file or YouTube URL to transcribe")
   .option("-o, --output <path>", "Output file path (default: input.md)")
+  .option("--output-dir <dir>", "Output directory (keeps auto-generated filename)")
   .option("--api-key <key>", "API key (ElevenLabs or OpenAI depending on provider)")
   .option("--timestamps", "Include timestamps in output")
   .option("--language <lang>", "Audio language (ISO-639-1 code, e.g., en, es)")
@@ -211,7 +214,8 @@ program
         const outputPath = getOutputPath(
           source.filePath,
           options.output,
-          isRemote
+          isRemote,
+          options.outputDir
         );
         await Bun.write(outputPath, markdown);
         console.log(`Saved to: ${outputPath}`);
@@ -224,6 +228,7 @@ program
         filePath: source.filePath,
         apiKey: options.apiKey,
         output: options.output,
+        outputDir: options.outputDir,
         language: options.language,
         timestamps: options.timestamps,
         translate: options.translate,

@@ -35,8 +35,8 @@ export const S = {
   dropzoneClick: "o hacé clic para buscar",
   dropzoneFormats: "mp3, wav, m4a, ogg, flac, mp4, webm",
   orPasteLink: "o pegar un enlace",
-  supportedSources: "Soportado: YouTube",
-  urlPlaceholder: "https://youtube.com/watch?v=...",
+  supportedSources: "Soportado: YouTube, Instagram",
+  urlPlaceholder: "https://youtube.com/watch?v=... o https://instagram.com/p/...",
 
   // Options
   provider: "Proveedor",

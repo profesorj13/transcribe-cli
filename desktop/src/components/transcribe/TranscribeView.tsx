@@ -1,6 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Link, Upload } from "lucide-react";
+import { ArrowLeft, FolderOpen, Link, Upload } from "lucide-react";
 import { useAppStore } from "../../stores/app";
 import { useTranscriptionStore } from "../../stores/transcription";
 import { Button } from "../shared/Button";
@@ -30,6 +30,14 @@ export function TranscribeView() {
 
   const [urlInput, setUrlInput] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [outputDir, setOutputDir] = useState<string>("~/Desktop");
+
+  useEffect(() => {
+    tauri.getConfig().then((cfg) => {
+      if (cfg.outputDirectory) setOutputDir(cfg.outputDirectory);
+    }).catch(() => {});
+  }, []);
+
   const urlValid = urlInput.length > 0 && isSupportedUrl(urlInput);
   const hasSource = source !== null;
 
@@ -88,6 +96,7 @@ export function TranscribeView() {
         translate: options.translate,
         speakers: options.speakers,
         numSpeakers: options.numSpeakers,
+        outputDir,
       });
     } catch {
       setStatus("error");
@@ -271,6 +280,32 @@ export function TranscribeView() {
             )}
           </>
         )}
+      </div>
+
+      {/* Output directory */}
+      <div className="flex items-center justify-between bg-white dark:bg-neutral-800/50 rounded-xl px-4 py-3 border border-neutral-200 dark:border-neutral-700/50">
+        <div className="min-w-0 flex-1">
+          <span className="text-[13px] text-neutral-700 dark:text-neutral-300">
+            {S.outputFolder}
+          </span>
+          <p className="text-[11px] text-neutral-400 dark:text-neutral-600 mt-0.5 truncate">
+            {outputDir}
+          </p>
+        </div>
+        <button
+          onClick={async () => {
+            const dir = await tauri.chooseDirectory();
+            if (dir) {
+              setOutputDir(dir);
+              const cfg = await tauri.getConfig();
+              await tauri.saveConfig({ ...cfg, outputDirectory: dir });
+            }
+          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer text-neutral-600 dark:text-neutral-400 shrink-0 ml-3"
+        >
+          <FolderOpen size={14} />
+          {S.change}
+        </button>
       </div>
 
       {/* Transcribe button */}
