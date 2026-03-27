@@ -67,6 +67,7 @@ export function RecordingDone() {
         translate: options.translate,
         speakers: options.speakers,
         numSpeakers: options.numSpeakers,
+        outputDir,
       });
     } catch (err) {
       const msg = typeof err === "string" ? err : err instanceof Error ? err.message : "Error al iniciar la transcripción";
