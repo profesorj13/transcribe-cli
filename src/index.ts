@@ -6,7 +6,7 @@ import * as elevenlabs from "./transcription/elevenlabs.ts";
 import type { TranscriptionProvider } from "./transcription/types.ts";
 import { generateMarkdown, getOutputPath } from "./output/markdown.ts";
 import { record, askYesNo, askNumber, askText } from "./recording/recorder.ts";
-import { splitAudio } from "./audio/splitter.ts";
+import { splitAudio, getAudioDuration } from "./audio/splitter.ts";
 
 program
   .name("trans")
@@ -67,15 +67,43 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
   let cleanupFn: (() => Promise<void>) | undefined;
 
   if (provider === "elevenlabs") {
-    // ElevenLabs supports up to 3GB — no splitting needed
-    result = await elevenlabs.transcribeAudio({
-      apiKey,
-      filePath,
-      language,
-      timestamps,
-      diarize: speakers,
-      numSpeakers,
-    });
+    const ELEVENLABS_CHUNK_THRESHOLD = 5 * 60; // 5 minutes
+    const OVERLAP_SECONDS = 30;
+    const duration = await getAudioDuration(filePath);
+
+    if (duration > ELEVENLABS_CHUNK_THRESHOLD) {
+      const splitResult = await splitAudio(filePath, {
+        overlapSeconds: speakers ? OVERLAP_SECONDS : 0,
+        compress: false, // ElevenLabs accepts large files, no 25MB limit
+      });
+      const { chunks, cleanup } = splitResult;
+      cleanupFn = cleanup;
+      chunksCount = chunks.length;
+
+      console.log(`Processing ${chunks.length} chunks in parallel...`);
+      result = await elevenlabs.transcribeChunksParallel({
+        apiKey,
+        chunks,
+        language,
+        timestamps,
+        diarize: speakers,
+        numSpeakers,
+        overlapSeconds: speakers ? OVERLAP_SECONDS : 0,
+        onProgress: (completed, total) => {
+          console.log(`Transcribed chunk ${completed}/${total}`);
+        },
+      });
+    } else {
+      // Short file — single API call
+      result = await elevenlabs.transcribeAudio({
+        apiKey,
+        filePath,
+        language,
+        timestamps,
+        diarize: speakers,
+        numSpeakers,
+      });
+    }
   } else {
     // Whisper: split if needed (25MB limit)
     const splitResult = await splitAudio(filePath);

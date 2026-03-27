@@ -10,6 +10,7 @@ export interface AudioChunk {
   path: string;
   startTime: number;
   index: number;
+  overlapStart?: number; // seconds of overlap at the beginning of this chunk
 }
 
 export interface SplitResult {
@@ -24,7 +25,16 @@ export async function getAudioDuration(filePath: string): Promise<number> {
   return parseFloat(result.trim());
 }
 
-export async function splitAudio(filePath: string): Promise<SplitResult> {
+export interface SplitOptions {
+  overlapSeconds?: number;  // overlap between consecutive chunks (default 0)
+  compress?: boolean;       // compress to mp3 16kHz mono (default true)
+}
+
+export async function splitAudio(
+  filePath: string,
+  options?: SplitOptions,
+): Promise<SplitResult> {
+  const { overlapSeconds = 0, compress = true } = options ?? {};
   const duration = await getAudioDuration(filePath);
   const tempDir = join(tmpdir(), `trans-${randomUUID()}`);
   await $`mkdir -p ${tempDir}`;
@@ -32,20 +42,23 @@ export async function splitAudio(filePath: string): Promise<SplitResult> {
   const chunks: AudioChunk[] = [];
   const numChunks = Math.ceil(duration / CHUNK_DURATION_SECONDS);
   const baseName = basename(filePath, ".wav").replace(/\.[^/.]+$/, "");
+  const ext = compress ? "mp3" : "wav";
 
   if (numChunks <= 1) {
     // No split needed, but compress if file exceeds API size limit
-    const fileSize = Bun.file(filePath).size;
-    if (fileSize > MAX_FILE_SIZE_BYTES) {
-      console.log(`File size (${(fileSize / 1024 / 1024).toFixed(1)}MB) exceeds 25MB limit, compressing...`);
-      const compressedPath = join(tempDir, `${baseName}-compressed.mp3`);
-      await $`ffmpeg -i ${filePath} -ac 1 -ar 16000 -y ${compressedPath}`.quiet();
-      console.log(`Compressed to ${(Bun.file(compressedPath).size / 1024 / 1024).toFixed(1)}MB\n`);
-      return {
-        chunks: [{ path: compressedPath, startTime: 0, index: 0 }],
-        totalDuration: duration,
-        cleanup: async () => { await $`rm -rf ${tempDir}`.quiet(); },
-      };
+    if (compress) {
+      const fileSize = Bun.file(filePath).size;
+      if (fileSize > MAX_FILE_SIZE_BYTES) {
+        console.log(`File size (${(fileSize / 1024 / 1024).toFixed(1)}MB) exceeds 25MB limit, compressing...`);
+        const compressedPath = join(tempDir, `${baseName}-compressed.mp3`);
+        await $`ffmpeg -i ${filePath} -ac 1 -ar 16000 -y ${compressedPath}`.quiet();
+        console.log(`Compressed to ${(Bun.file(compressedPath).size / 1024 / 1024).toFixed(1)}MB\n`);
+        return {
+          chunks: [{ path: compressedPath, startTime: 0, index: 0 }],
+          totalDuration: duration,
+          cleanup: async () => { await $`rm -rf ${tempDir}`.quiet(); },
+        };
+      }
     }
     return {
       chunks: [{ path: filePath, startTime: 0, index: 0 }],
@@ -61,15 +74,22 @@ export async function splitAudio(filePath: string): Promise<SplitResult> {
 
   // Split audio using ffmpeg
   for (let i = 0; i < numChunks; i++) {
-    const startTime = i * CHUNK_DURATION_SECONDS;
-    const chunkPath = join(tempDir, `${baseName}-chunk-${i.toString().padStart(3, "0")}.mp3`);
+    const overlap = i > 0 ? overlapSeconds : 0;
+    const startTime = i * CHUNK_DURATION_SECONDS - overlap;
+    const chunkDuration = CHUNK_DURATION_SECONDS + overlap;
+    const chunkPath = join(tempDir, `${baseName}-chunk-${i.toString().padStart(3, "0")}.${ext}`);
 
-    await $`ffmpeg -i ${filePath} -ss ${startTime} -t ${CHUNK_DURATION_SECONDS} -ar 16000 -ac 1 -y ${chunkPath}`.quiet();
+    if (compress) {
+      await $`ffmpeg -i ${filePath} -ss ${startTime} -t ${chunkDuration} -ar 16000 -ac 1 -y ${chunkPath}`.quiet();
+    } else {
+      await $`ffmpeg -i ${filePath} -ss ${startTime} -t ${chunkDuration} -c copy -y ${chunkPath}`.quiet();
+    }
 
     chunks.push({
       path: chunkPath,
       startTime,
       index: i,
+      overlapStart: overlap,
     });
   }
 
