@@ -40,6 +40,13 @@ export async function cancelRecording(): Promise<void> {
   return invoke("cancel_recording");
 }
 
+export async function renameRecording(
+  oldPath: string,
+  newName: string,
+): Promise<string> {
+  return invoke("rename_recording", { oldPath, newName });
+}
+
 // Transcription commands
 export async function transcribe(args: {
   input: string;

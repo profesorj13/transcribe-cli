@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { FolderOpen } from "lucide-react";
+import { Check, FolderOpen, Pencil, X } from "lucide-react";
 import { useAppStore } from "../../stores/app";
 import { useRecordingStore } from "../../stores/recording";
 import { Button } from "../shared/Button";
@@ -22,11 +22,16 @@ export function RecordingDone() {
     setOptions,
     setStatus,
     setResult,
+    setFilePath,
     reset,
   } = useRecordingStore();
 
   const { errorMessage, setErrorMessage } = useRecordingStore();
   const [outputDir, setOutputDir] = useState<string>("~/Desktop");
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     tauri.getConfig().then((cfg) => {
@@ -90,6 +95,51 @@ export function RecordingDone() {
   }
 
   const fileName = filePath?.split("/").pop() || "recording.wav";
+  const fileBaseName = fileName.replace(/\.[^.]+$/, "");
+  const fileExt = fileName.includes(".") ? fileName.slice(fileName.lastIndexOf(".")) : "";
+
+  const startEditingName = () => {
+    if (!filePath || status === "transcribing") return;
+    setNameDraft(fileBaseName);
+    setRenameError(null);
+    setIsEditingName(true);
+    // Focus on next tick after input mounts
+    setTimeout(() => {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    }, 0);
+  };
+
+  const cancelEditingName = () => {
+    setIsEditingName(false);
+    setRenameError(null);
+    setNameDraft("");
+  };
+
+  const confirmEditingName = async () => {
+    if (!filePath) return;
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === fileBaseName) {
+      cancelEditingName();
+      return;
+    }
+    try {
+      const newPath = await tauri.renameRecording(filePath, trimmed);
+      setFilePath(newPath);
+      setIsEditingName(false);
+      setRenameError(null);
+      setNameDraft("");
+    } catch (err) {
+      const msg =
+        typeof err === "string"
+          ? err
+          : err instanceof Error
+          ? err.message
+          : S.renameError;
+      setRenameError(msg);
+    }
+  };
+
   const providerOptions = [
     { value: "elevenlabs", label: "ElevenLabs" },
     { value: "whisper", label: "Whisper (OpenAI)" },
@@ -107,9 +157,79 @@ export function RecordingDone() {
         <h2 className="text-[16px] font-semibold text-neutral-900 dark:text-neutral-100">
           {filePath ? S.recordingSaved : "Error en la grabación"}
         </h2>
-        <p className="text-[13px] text-neutral-500 mt-1">
-          {filePath ? `${fileName} — ${formatDuration(duration)}` : "El archivo no se guardó correctamente"}
-        </p>
+        {filePath ? (
+          isEditingName ? (
+            <div className="mt-2 flex flex-col items-center gap-1">
+              <div className="flex items-center justify-center gap-1.5">
+                <div className="flex items-center rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary">
+                  <input
+                    ref={nameInputRef}
+                    type="text"
+                    value={nameDraft}
+                    onChange={(e) => {
+                      setNameDraft(e.target.value);
+                      if (renameError) setRenameError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        confirmEditingName();
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        cancelEditingName();
+                      }
+                    }}
+                    className="px-2 py-1 text-[13px] bg-transparent text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none w-48"
+                    placeholder="nombre-del-archivo"
+                  />
+                  <span className="pr-2 text-[12px] text-neutral-400 select-none">
+                    {fileExt}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={confirmEditingName}
+                  className="p-1 rounded-md text-success hover:bg-success/10 transition-colors"
+                  aria-label="Confirmar"
+                >
+                  <Check size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEditingName}
+                  className="p-1 rounded-md text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600 transition-colors"
+                  aria-label="Cancelar"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              {renameError && (
+                <p className="text-[11px] text-red-500">{renameError}</p>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={startEditingName}
+              disabled={status === "transcribing"}
+              className="mt-1 inline-flex items-center gap-1.5 text-[13px] text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors group disabled:cursor-not-allowed disabled:hover:text-neutral-500"
+              title={S.renameFile}
+            >
+              <span className="underline decoration-dotted underline-offset-2">
+                {fileName}
+              </span>
+              <Pencil
+                size={11}
+                className="text-neutral-400 opacity-60 group-hover:opacity-100 transition-opacity"
+              />
+              <span className="text-neutral-400">— {formatDuration(duration)}</span>
+            </button>
+          )
+        ) : (
+          <p className="text-[13px] text-neutral-500 mt-1">
+            El archivo no se guardó correctamente
+          </p>
+        )}
       </div>
 
       {/* Error message */}

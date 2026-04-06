@@ -243,6 +243,76 @@ pub fn stop_recording(state: State<'_, RecordingState>) -> Result<serde_json::Va
 }
 
 #[tauri::command]
+pub fn rename_recording(old_path: String, new_name: String) -> Result<String, String> {
+    let trimmed = new_name.trim();
+    if trimmed.is_empty() {
+        return Err("El nombre no puede estar vacío".to_string());
+    }
+
+    let sanitized: String = trimmed
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+
+    // Collapse consecutive dashes for cleanliness
+    let mut cleaned = String::with_capacity(sanitized.len());
+    let mut prev_dash = false;
+    for c in sanitized.chars() {
+        if c == '-' {
+            if !prev_dash {
+                cleaned.push(c);
+            }
+            prev_dash = true;
+        } else {
+            cleaned.push(c);
+            prev_dash = false;
+        }
+    }
+    let cleaned = cleaned.trim_matches('-').to_string();
+    if cleaned.is_empty() {
+        return Err("El nombre no es válido".to_string());
+    }
+
+    let old = std::path::Path::new(&old_path);
+    if !old.exists() {
+        return Err(format!("El archivo original no existe: {}", old_path));
+    }
+
+    let dir = old
+        .parent()
+        .ok_or_else(|| "No se pudo obtener el directorio del archivo".to_string())?;
+    let extension = old
+        .extension()
+        .map(|e| e.to_string_lossy().to_string())
+        .unwrap_or_else(|| "wav".to_string());
+
+    let new_path = dir.join(format!("{}.{}", cleaned, extension));
+
+    // No-op if the path is the same
+    if new_path == old {
+        return Ok(old_path);
+    }
+
+    if new_path.exists() {
+        return Err(format!(
+            "Ya existe un archivo con ese nombre: {}",
+            new_path.to_string_lossy()
+        ));
+    }
+
+    std::fs::rename(old, &new_path)
+        .map_err(|e| format!("No se pudo renombrar el archivo: {}", e))?;
+
+    Ok(new_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub fn cancel_recording(state: State<'_, RecordingState>) -> Result<(), String> {
     *state.timer_running.lock().unwrap() = false;
 

@@ -17,6 +17,8 @@ export const S = {
   duration: "Duración",
   transcribeNow: "Transcribir ahora",
   discard: "Descartar",
+  renameFile: "Renombrar archivo",
+  renameError: "No se pudo renombrar",
 
   // Transcription
   transcribing: "Transcribiendo...",
