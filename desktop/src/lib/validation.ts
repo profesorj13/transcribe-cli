@@ -16,6 +16,13 @@ const YOUTUBE_REGEX =
 const INSTAGRAM_REGEX =
   /^(https?:\/\/)?(www\.)?instagram\.com\/(p|reel|reels|tv)\/[\w-]+/;
 
+const GDRIVE_PATTERNS = [
+  /^https?:\/\/drive\.google\.com\/file\/d\/[a-zA-Z0-9_-]+/,
+  /^https?:\/\/drive\.google\.com\/open\?id=[a-zA-Z0-9_-]+/,
+  /^https?:\/\/drive\.google\.com\/uc\?(?:.*&)?id=[a-zA-Z0-9_-]+/,
+  /^https?:\/\/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/[a-zA-Z0-9_-]+/,
+];
+
 export function isValidAudioFile(fileName: string): boolean {
   const ext = fileName.split(".").pop()?.toLowerCase();
   return ext ? SUPPORTED_EXTENSIONS.includes(ext) : false;
@@ -29,8 +36,12 @@ export function isInstagramUrl(url: string): boolean {
   return INSTAGRAM_REGEX.test(url);
 }
 
+export function isGoogleDriveUrl(url: string): boolean {
+  return GDRIVE_PATTERNS.some((regex) => regex.test(url));
+}
+
 export function isSupportedUrl(url: string): boolean {
-  return isYouTubeUrl(url) || isInstagramUrl(url);
+  return isYouTubeUrl(url) || isInstagramUrl(url) || isGoogleDriveUrl(url);
 }
 
 export function getSupportedExtensions(): string[] {

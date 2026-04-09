@@ -110,7 +110,7 @@ export function SettingsSheet() {
                 {S.outputFolder}
               </span>
               <p className="text-[11px] text-neutral-400 dark:text-neutral-600 mt-0.5">
-                {config.outputDirectory || "~/Desktop"}
+                {config.outputDirectory || "~/Downloads"}
               </p>
             </div>
             <button

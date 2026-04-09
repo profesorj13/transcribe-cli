@@ -30,7 +30,7 @@ export function TranscribeView() {
 
   const [urlInput, setUrlInput] = useState("");
   const [dragOver, setDragOver] = useState(false);
-  const [outputDir, setOutputDir] = useState<string>("~/Desktop");
+  const [outputDir, setOutputDir] = useState<string>("~/Downloads");
 
   useEffect(() => {
     tauri.getConfig().then((cfg) => {
