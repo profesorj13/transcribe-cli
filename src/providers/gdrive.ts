@@ -4,14 +4,26 @@ import { join } from "path";
 import { randomUUID } from "crypto";
 import type { AudioSource, BaseProvider } from "./base.ts";
 
-const GDRIVE_REGEX =
-  /^https?:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
+const GDRIVE_PATTERNS = [
+  /^https?:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/,
+  /^https?:\/\/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/,
+  /^https?:\/\/drive\.google\.com\/uc\?(?:.*&)?id=([a-zA-Z0-9_-]+)/,
+  /^https?:\/\/docs\.google\.com\/(?:document|spreadsheets|presentation)\/d\/([a-zA-Z0-9_-]+)/,
+];
+
+function matchGDrive(input: string): RegExpMatchArray | null {
+  for (const regex of GDRIVE_PATTERNS) {
+    const match = input.match(regex);
+    if (match) return match;
+  }
+  return null;
+}
 
 export class GoogleDriveProvider implements BaseProvider {
   name = "google-drive";
 
   canHandle(input: string): boolean {
-    return GDRIVE_REGEX.test(input);
+    return matchGDrive(input) !== null;
   }
 
   async getAudioSource(input: string): Promise<AudioSource> {
@@ -57,7 +69,7 @@ export class GoogleDriveProvider implements BaseProvider {
       return (await $`yt-dlp --get-title ${input}`.text()).trim();
     } catch {
       // Fallback: extract file ID as name
-      const match = input.match(GDRIVE_REGEX);
+      const match = matchGDrive(input);
       return match?.[1] || "gdrive-audio";
     }
   }

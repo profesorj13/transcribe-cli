@@ -27,7 +27,7 @@ export function RecordingDone() {
   } = useRecordingStore();
 
   const { errorMessage, setErrorMessage } = useRecordingStore();
-  const [outputDir, setOutputDir] = useState<string>("~/Desktop");
+  const [outputDir, setOutputDir] = useState<string>("~/Downloads");
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);

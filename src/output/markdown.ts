@@ -1,4 +1,5 @@
 import { basename, join } from "path";
+import { homedir } from "os";
 import { existsSync } from "node:fs";
 import type { TranscriptionResult } from "../transcription/types.ts";
 
@@ -142,8 +143,9 @@ export function getOutputPath(inputPath: string, customOutput?: string, cwdFallb
   const mdName = lastDot === -1 ? `${name}.md` : `${name.slice(0, lastDot)}.md`;
 
   if (outputDir) {
-    // Explicit output directory
-    mdPath = join(outputDir, mdName);
+    // Expand ~ to home directory
+    const resolvedDir = outputDir.startsWith("~/") ? join(homedir(), outputDir.slice(2)) : outputDir;
+    mdPath = join(resolvedDir, mdName);
   } else if (cwdFallback) {
     // For remote sources (YouTube, URLs), save in cwd
     mdPath = join(process.cwd(), mdName);
