@@ -79,7 +79,7 @@ pub fn open_file_dialog() -> Result<Option<String>, String> {
     let output = Command::new("osascript")
         .args([
             "-e",
-            r#"set theFile to choose file of type {"mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm", "ogg", "flac"} with prompt "Seleccionar archivo de audio"
+            r#"set theFile to choose file of type {"mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm", "ogg", "opus", "flac"} with prompt "Seleccionar archivo de audio"
 POSIX path of theFile"#,
         ])
         .output()
