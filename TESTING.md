@@ -197,6 +197,9 @@ ffmpeg -y -f concat -safe 0 -i $T/lista.txt -c copy $T/largo.mp3
 - [ ] **desktop-01 — B1 - Renombrar grabacion propaga al audio en disco Y al .md de salida**
   - Pasos: 1) Grabar audio (queda como recording-YYYY-MM-DD.wav). 2) En RecordingDone tocar el lapiz y renombrar a 'entrevista'. 3) Confirmar (Check/Enter). 4) Transcribir. 5) Abrir la carpeta de salida.
   - Esperado: El .wav en disco pasa a llamarse entrevista.wav y el .md generado es entrevista.md (mismo basename). Ni el audio ni el .md conservan el nombre viejo. Trazabilidad: RecordingDone.confirmEditingName debe hacer setFilePath(newPath) y handleTranscribe debe pasar ese filePath nuevo como input al CLI, que deriva el .md del basename del input.
+- [ ] **desktop-01b — B1 - Renombrar y transcribir SIN confirmar el ✓ igual aplica el nombre** (regresión — el bug original)
+  - Pasos MANUAL en la app: 1) Grabar. 2) Tocar el lápiz, tipear 'Test 3' (se muestra "Se guardará como Test-3.wav"). 3) SIN clickear el ✓, clickear directamente "Transcribir ahora".
+  - Esperado: El .md se guarda como Test-3.md (no recording-YYYY-MM-DD.md). handleTranscribe llama commitPendingRename() antes de transcribir, así una edición pendiente no se descarta. Este es exactamente el flujo que fallaba en producción.
   ```bash
   cd . && TMP=$T && cp "$TMP/voz.mp3" "$TMP/entrevista.mp3" && timeout 115 bun run bin/trans.ts "$TMP/entrevista.mp3" --provider elevenlabs --language es --output-dir "$TMP/outdir" && ls "$TMP/outdir"/entrevista.md
   ```
