@@ -7,8 +7,10 @@ import { Button } from "../shared/Button";
 import { Select } from "../shared/Select";
 import { Toggle } from "../shared/Toggle";
 import { S } from "../../lib/strings";
-import { formatDuration } from "../../lib/validation";
+import { formatDuration, sanitizeFileName } from "../../lib/validation";
 import { ResultView } from "../result/ResultView";
+import { ProgressView } from "../progress/ProgressView";
+import type { TranscriptionProgress } from "../../types";
 import * as tauri from "../../lib/tauri";
 
 export function RecordingDone() {
@@ -27,17 +29,40 @@ export function RecordingDone() {
   } = useRecordingStore();
 
   const { errorMessage, setErrorMessage } = useRecordingStore();
-  const [outputDir, setOutputDir] = useState<string>("~/Downloads");
+
+  // The recorded audio already landed in config.outputDirectory (or ~/Desktop)
+  // via Rust's get_output_dir(). Default the .md to that SAME folder so audio and
+  // transcription never split across folders (desktop-B05/B06) and the .md
+  // inherits the (possibly renamed) audio's folder + base name (desktop-B1).
+  const audioDir = filePath ? filePath.slice(0, filePath.lastIndexOf("/")) : "";
+  const [outputDir, setOutputDir] = useState<string>(audioDir || "~/Desktop");
+  const [progress, setProgress] = useState<TranscriptionProgress | null>(null);
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const unlistenRef = useRef<Array<() => void>>([]);
 
+  // Follow the recorded audio's folder. A rename keeps the same directory, so
+  // audioDir only changes when a different recording loads; a manual folder
+  // override (button below) is left untouched because audioDir stays stable.
   useEffect(() => {
-    tauri.getConfig().then((cfg) => {
-      if (cfg.outputDirectory) setOutputDir(cfg.outputDirectory);
-    }).catch(() => {});
+    if (audioDir) setOutputDir(audioDir);
+  }, [audioDir]);
+
+  // Tear down any transcription listeners if the view unmounts mid-run so a late
+  // done/error can't write into an already-reset store (desktop-B04).
+  useEffect(() => {
+    return () => {
+      unlistenRef.current.forEach((u) => u());
+      unlistenRef.current = [];
+    };
   }, []);
+
+  const clearTranscriptionListeners = () => {
+    unlistenRef.current.forEach((u) => u());
+    unlistenRef.current = [];
+  };
 
   const handleTranscribe = async () => {
     if (!filePath) {
@@ -46,23 +71,27 @@ export function RecordingDone() {
     }
     setStatus("transcribing");
     setErrorMessage(null);
-
-    let unlistenDone: (() => void) | undefined;
-    let unlistenErr: (() => void) | undefined;
+    setProgress(null);
 
     try {
-      unlistenDone = await tauri.onTranscriptionDone((res) => {
-        setResult(res);
-        setStatus("done");
-        unlistenDone?.();
-        unlistenErr?.();
-      });
-      unlistenErr = await tauri.onTranscriptionError((err) => {
-        setErrorMessage(err.message || "Error en la transcripción");
-        setStatus("error");
-        unlistenDone?.();
-        unlistenErr?.();
-      });
+      unlistenRef.current.push(
+        await tauri.onTranscriptionProgress((p) => setProgress(p)),
+      );
+      unlistenRef.current.push(
+        await tauri.onTranscriptionDone((res) => {
+          setResult(res);
+          setStatus("done");
+          clearTranscriptionListeners();
+        }),
+      );
+      unlistenRef.current.push(
+        await tauri.onTranscriptionError((err) => {
+          setErrorMessage(err.message || "Error en la transcripción");
+          setStatus("error");
+          setProgress(null);
+          clearTranscriptionListeners();
+        }),
+      );
 
       await tauri.transcribe({
         input: filePath,
@@ -78,9 +107,22 @@ export function RecordingDone() {
       const msg = typeof err === "string" ? err : err instanceof Error ? err.message : "Error al iniciar la transcripción";
       setErrorMessage(msg);
       setStatus("error");
-      unlistenDone?.();
-      unlistenErr?.();
+      setProgress(null);
+      clearTranscriptionListeners();
     }
+  };
+
+  // Cancel an in-flight transcription: kill the child process, drop listeners and
+  // return to the recording-done form so the recording is kept (desktop-B01/B04).
+  const cancelTranscription = async () => {
+    try {
+      await tauri.cancelTranscription();
+    } catch {
+      // ignore
+    }
+    clearTranscriptionListeners();
+    setProgress(null);
+    setStatus("stopped");
   };
 
   const goHome = () => {
@@ -94,12 +136,23 @@ export function RecordingDone() {
     return <ResultView result={result} onBack={goHome} />;
   }
 
+  // While transcribing, show the shared progress view (with live chunk progress)
+  // instead of a static "Transcribiendo..." button (desktop-B10).
+  if (status === "transcribing") {
+    return <ProgressView progress={progress} onCancel={cancelTranscription} />;
+  }
+
   const fileName = filePath?.split("/").pop() || "recording.wav";
   const fileBaseName = fileName.replace(/\.[^.]+$/, "");
   const fileExt = fileName.includes(".") ? fileName.slice(fileName.lastIndexOf(".")) : "";
+  // Live preview of the real saved name, using the same sanitizer as Rust so the
+  // user sees exactly what the file will be called (desktop-B14).
+  const sanitizedDraft = sanitizeFileName(nameDraft);
 
   const startEditingName = () => {
-    if (!filePath || status === "transcribing") return;
+    // (The transcribing state renders ProgressView above, so this only runs from
+    // the idle recording-done form.)
+    if (!filePath) return;
     setNameDraft(fileBaseName);
     setRenameError(null);
     setIsEditingName(true);
@@ -118,13 +171,19 @@ export function RecordingDone() {
 
   const confirmEditingName = async () => {
     if (!filePath) return;
-    const trimmed = nameDraft.trim();
-    if (!trimmed || trimmed === fileBaseName) {
+    // Compare against the SANITIZED name (what Rust will actually write), not the
+    // raw text, so "no changes" and the final file agree (desktop-B14).
+    const sanitized = sanitizeFileName(nameDraft);
+    if (!sanitized) {
+      setRenameError("El nombre no tiene caracteres válidos");
+      return;
+    }
+    if (sanitized === fileBaseName) {
       cancelEditingName();
       return;
     }
     try {
-      const newPath = await tauri.renameRecording(filePath, trimmed);
+      const newPath = await tauri.renameRecording(filePath, nameDraft);
       setFilePath(newPath);
       setIsEditingName(false);
       setRenameError(null);
@@ -203,6 +262,21 @@ export function RecordingDone() {
                   <X size={14} />
                 </button>
               </div>
+              {!renameError && nameDraft.trim() && (
+                sanitizedDraft ? (
+                  <p className="text-[11px] text-neutral-400">
+                    Se guardará como{" "}
+                    <span className="font-medium text-neutral-500 dark:text-neutral-400">
+                      {sanitizedDraft}
+                      {fileExt}
+                    </span>
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-amber-500">
+                    Ese nombre no tiene caracteres válidos
+                  </p>
+                )
+              )}
               {renameError && (
                 <p className="text-[11px] text-red-500">{renameError}</p>
               )}
@@ -211,8 +285,7 @@ export function RecordingDone() {
             <button
               type="button"
               onClick={startEditingName}
-              disabled={status === "transcribing"}
-              className="mt-1 inline-flex items-center gap-1.5 text-[13px] text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors group disabled:cursor-not-allowed disabled:hover:text-neutral-500"
+              className="mt-1 inline-flex items-center gap-1.5 text-[13px] text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors group"
               title={S.renameFile}
             >
               <span className="underline decoration-dotted underline-offset-2">
@@ -305,19 +378,10 @@ export function RecordingDone() {
 
       {/* Actions */}
       <div className="flex gap-3">
-        <Button
-          variant="primary"
-          fullWidth
-          onClick={handleTranscribe}
-          disabled={status === "transcribing"}
-        >
-          {status === "transcribing" ? S.transcribing : S.transcribeNow}
+        <Button variant="primary" fullWidth onClick={handleTranscribe}>
+          {S.transcribeNow}
         </Button>
-        <Button
-          variant="secondary"
-          onClick={goHome}
-          disabled={status === "transcribing"}
-        >
+        <Button variant="secondary" onClick={goHome}>
           {S.discard}
         </Button>
       </div>

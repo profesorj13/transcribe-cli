@@ -19,7 +19,14 @@ export function ResultView({ result, onBack }: ResultViewProps) {
   const [currentPreview, setCurrentPreview] = useState(result.preview);
 
   const handleCopy = async () => {
-    await tauri.copyToClipboard(currentPreview);
+    try {
+      // Copy the FULL transcription (the whole .md), not the truncated preview
+      // that Rust returns (~800 bytes / first lines) (desktop-B09).
+      await tauri.copyFileToClipboard(result.outputPath);
+    } catch {
+      // If the file can't be read for some reason, fall back to the preview.
+      await tauri.copyToClipboard(currentPreview);
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

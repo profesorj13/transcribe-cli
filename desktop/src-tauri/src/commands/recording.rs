@@ -22,7 +22,7 @@ impl RecordingState {
 }
 
 /// Kill a process by PID: try SIGINT first, wait up to `timeout`, then SIGKILL.
-fn kill_process_gracefully(pid: u32, timeout: Duration) {
+pub(crate) fn kill_process_gracefully(pid: u32, timeout: Duration) {
     unsafe {
         libc::kill(pid as i32, libc::SIGINT);
     }
@@ -96,6 +96,19 @@ fn detect_recorder() -> Option<&'static str> {
     None
 }
 
+/// Expand a leading `~` / `~/` against `home`, matching how the CLI resolves
+/// `--output-dir` (see src/output/markdown.ts). Without this the raw "~/x" from
+/// config never `exists()`, so audio and the .md ended up in different folders.
+fn expand_tilde(dir: &str, home: &std::path::Path) -> std::path::PathBuf {
+    if dir == "~" {
+        home.to_path_buf()
+    } else if let Some(rest) = dir.strip_prefix("~/") {
+        home.join(rest)
+    } else {
+        std::path::PathBuf::from(dir)
+    }
+}
+
 fn get_output_dir() -> std::path::PathBuf {
     // Try reading config for outputDirectory
     let home = dirs::home_dir().unwrap_or_default();
@@ -103,14 +116,15 @@ fn get_output_dir() -> std::path::PathBuf {
     if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(dir) = json.get("outputDirectory").and_then(|v| v.as_str()) {
-                let path = std::path::PathBuf::from(dir);
+                let path = expand_tilde(dir, &home);
                 if path.exists() {
                     return path;
                 }
             }
         }
     }
-    // Default to Desktop
+    // Default to Desktop (kept in sync with the front-end default so the recorded
+    // audio and the generated .md always land in the same folder).
     home.join("Desktop")
 }
 
@@ -195,8 +209,10 @@ pub fn start_recording(
     Ok(())
 }
 
+// Async so the graceful-kill polling (up to ~5s) + flush sleep run off the main
+// thread; a synchronous command would freeze the UI while stopping.
 #[tauri::command]
-pub fn stop_recording(state: State<'_, RecordingState>) -> Result<serde_json::Value, String> {
+pub async fn stop_recording(state: State<'_, RecordingState>) -> Result<serde_json::Value, String> {
     *state.timer_running.lock().unwrap() = false;
 
     let duration = state
@@ -206,7 +222,9 @@ pub fn stop_recording(state: State<'_, RecordingState>) -> Result<serde_json::Va
         .map(|t| t.elapsed().as_secs())
         .unwrap_or(0);
 
-    if let Some(mut child) = state.process.lock().unwrap().take() {
+    // Take the child out (dropping the lock) before the blocking kill/flush.
+    let child = state.process.lock().unwrap().take();
+    if let Some(mut child) = child {
         let pid = child.id();
         kill_process_gracefully(pid, Duration::from_secs(5));
         // Reap the child process to avoid zombies

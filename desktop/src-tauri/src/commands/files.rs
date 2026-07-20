@@ -122,6 +122,17 @@ pub fn open_file(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn copy_to_clipboard(_app: AppHandle, text: String) -> Result<(), String> {
+    copy_text_to_clipboard(&text)
+}
+
+/// Copy the FULL contents of a file to the clipboard (not the truncated preview).
+#[tauri::command]
+pub fn copy_file_to_clipboard(path: String) -> Result<(), String> {
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    copy_text_to_clipboard(&content)
+}
+
+fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
     use std::io::Write;
     let mut child = Command::new("pbcopy")
         .stdin(std::process::Stdio::piped())

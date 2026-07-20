@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ArrowLeft, FolderOpen, Link, Upload } from "lucide-react";
 import { useAppStore } from "../../stores/app";
 import { useTranscriptionStore } from "../../stores/transcription";
@@ -20,17 +21,22 @@ export function TranscribeView() {
     progress,
     result,
     options,
+    errorMessage,
     setSource,
     setStatus,
     setProgress,
     setResult,
     setOptions,
+    setErrorMessage,
     reset,
   } = useTranscriptionStore();
 
   const [urlInput, setUrlInput] = useState("");
   const [dragOver, setDragOver] = useState(false);
-  const [outputDir, setOutputDir] = useState<string>("~/Downloads");
+  // Default to the same folder Rust records into (get_output_dir → ~/Desktop) so
+  // the front never hardcodes a different default than the backend (desktop-B05).
+  const [outputDir, setOutputDir] = useState<string>("~/Desktop");
+  const unlistenRef = useRef<Array<() => void>>([]);
 
   useEffect(() => {
     tauri.getConfig().then((cfg) => {
@@ -38,22 +44,48 @@ export function TranscribeView() {
     }).catch(() => {});
   }, []);
 
+  // Native (OS-level) drag & drop. In Tauri v2, dragDropEnabled defaults to true,
+  // so the webview swallows DOM drop events and File.path does not exist; the real
+  // absolute paths only arrive via the window's drag-drop event (desktop-B07).
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let active = true;
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        const payload = event.payload;
+        if (payload.type === "enter" || payload.type === "over") {
+          setDragOver(true);
+        } else if (payload.type === "leave") {
+          setDragOver(false);
+        } else if (payload.type === "drop") {
+          setDragOver(false);
+          const dropped = payload.paths.find((p) => isValidAudioFile(p));
+          if (dropped) {
+            const name = dropped.split("/").pop() || dropped;
+            setSource({ type: "file", value: dropped, name });
+          }
+        }
+      })
+      .then((u) => {
+        if (active) unlisten = u;
+        else u();
+      });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [setSource]);
+
+  // Drop any transcription listeners if the view unmounts mid-run (desktop-B04).
+  useEffect(() => {
+    return () => {
+      unlistenRef.current.forEach((u) => u());
+      unlistenRef.current = [];
+    };
+  }, []);
+
   const urlValid = urlInput.length > 0 && isSupportedUrl(urlInput);
   const hasSource = source !== null;
-
-  const handleFileDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragOver(false);
-      const file = e.dataTransfer.files[0];
-      if (file && isValidAudioFile(file.name)) {
-        // In Tauri, we get the path from the file
-        const path = (file as unknown as { path?: string }).path || file.name;
-        setSource({ type: "file", value: path, name: file.name });
-      }
-    },
-    [setSource],
-  );
 
   const handleFileSelect = async () => {
     const path = await tauri.openFileDialog();
@@ -69,24 +101,35 @@ export function TranscribeView() {
     }
   };
 
+  const clearListeners = () => {
+    unlistenRef.current.forEach((u) => u());
+    unlistenRef.current = [];
+  };
+
   const handleTranscribe = async () => {
     if (!source) return;
     setStatus("transcribing");
+    setErrorMessage(null);
+    setProgress(null);
 
     try {
-      const unProgress = await tauri.onTranscriptionProgress((p) => setProgress(p));
-      const unDone = await tauri.onTranscriptionDone((res) => {
-        setResult(res);
-        setStatus("done");
-        unProgress();
-        unDone();
-      });
-      const unErr = await tauri.onTranscriptionError((err) => {
-        setStatus("error");
-        unProgress();
-        unErr();
-        console.error(err.message);
-      });
+      unlistenRef.current.push(
+        await tauri.onTranscriptionProgress((p) => setProgress(p)),
+      );
+      unlistenRef.current.push(
+        await tauri.onTranscriptionDone((res) => {
+          setResult(res);
+          setStatus("done");
+          clearListeners();
+        }),
+      );
+      unlistenRef.current.push(
+        await tauri.onTranscriptionError((err) => {
+          setErrorMessage(err.message || "Error en la transcripción");
+          setStatus("error");
+          clearListeners();
+        }),
+      );
 
       await tauri.transcribe({
         input: source.value,
@@ -98,12 +141,27 @@ export function TranscribeView() {
         numSpeakers: options.numSpeakers,
         outputDir,
       });
-    } catch {
+    } catch (err) {
+      const msg =
+        typeof err === "string"
+          ? err
+          : err instanceof Error
+          ? err.message
+          : "Error al iniciar la transcripción";
+      setErrorMessage(msg);
       setStatus("error");
+      clearListeners();
     }
   };
 
   const handleBack = () => {
+    // If a transcription is running, kill the child process and drop listeners so
+    // it stops consuming the API and a late done/error can't reinject a stale
+    // result on re-entry (desktop-B01/B04).
+    if (status === "transcribing") {
+      tauri.cancelTranscription().catch(() => {});
+    }
+    clearListeners();
     navigate("home");
     // Reset AFTER exit animation completes to avoid blank screen
     setTimeout(() => reset(), 250);
@@ -145,14 +203,15 @@ export function TranscribeView() {
         {S.transcribe}
       </h2>
 
+      {/* Error message (desktop-B03) */}
+      {errorMessage && (
+        <div className="px-3 py-2 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800/30">
+          <p className="text-[12px] text-red-600 dark:text-red-400">{errorMessage}</p>
+        </div>
+      )}
+
       {/* Drop zone */}
       <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={handleFileDrop}
         onClick={handleFileSelect}
         className={`
           flex flex-col items-center justify-center gap-2 py-8 rounded-xl

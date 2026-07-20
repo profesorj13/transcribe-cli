@@ -16,11 +16,12 @@ const YOUTUBE_REGEX =
 const INSTAGRAM_REGEX =
   /^(https?:\/\/)?(www\.)?instagram\.com\/(p|reel|reels|tv)\/[\w-]+/;
 
+// Solo URLs de archivo de Drive (binarios descargables). Docs/Sheets/Slides nunca
+// son audio — se excluyen a propósito, espejando src/providers/gdrive.ts del CLI.
 const GDRIVE_PATTERNS = [
   /^https?:\/\/drive\.google\.com\/file\/d\/[a-zA-Z0-9_-]+/,
   /^https?:\/\/drive\.google\.com\/open\?id=[a-zA-Z0-9_-]+/,
   /^https?:\/\/drive\.google\.com\/uc\?(?:.*&)?id=[a-zA-Z0-9_-]+/,
-  /^https?:\/\/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/[a-zA-Z0-9_-]+/,
 ];
 
 export function isValidAudioFile(fileName: string): boolean {
@@ -46,6 +47,19 @@ export function isSupportedUrl(url: string): boolean {
 
 export function getSupportedExtensions(): string[] {
   return SUPPORTED_EXTENSIONS;
+}
+
+/**
+ * Mirror the Rust `rename_recording` sanitizer (src-tauri/.../recording.rs):
+ * keep Unicode letters/numbers plus '-' and '_', turn everything else into '-',
+ * collapse consecutive dashes, and trim leading/trailing dashes. Used to preview
+ * the real saved name while editing and to decide whether a rename is a no-op,
+ * so the front and Rust never disagree about the final file name (desktop-B14).
+ */
+export function sanitizeFileName(name: string): string {
+  const replaced = name.replace(/[^\p{L}\p{N}_-]/gu, "-");
+  const collapsed = replaced.replace(/-+/g, "-");
+  return collapsed.replace(/^-+|-+$/g, "");
 }
 
 export function formatDuration(seconds: number): string {

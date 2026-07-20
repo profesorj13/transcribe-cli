@@ -61,6 +61,11 @@ export async function transcribe(args: {
   return invoke("transcribe", args);
 }
 
+// Cancel an in-flight transcription (kills the child process, stops the watchdog)
+export async function cancelTranscription(): Promise<void> {
+  return invoke("cancel_transcription");
+}
+
 // Speaker rename
 export async function renameSpeakers(
   filePath: string,
@@ -84,6 +89,11 @@ export async function openFile(path: string): Promise<void> {
 
 export async function copyToClipboard(text: string): Promise<void> {
   return invoke("copy_to_clipboard", { text });
+}
+
+// Copy the FULL contents of a file (the whole .md, not the truncated preview)
+export async function copyFileToClipboard(path: string): Promise<void> {
+  return invoke("copy_file_to_clipboard", { path });
 }
 
 // Event listeners

@@ -1,11 +1,13 @@
 mod commands;
 
 use commands::recording::RecordingState;
+use commands::transcription::TranscriptionState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(RecordingState::new())
+        .manage(TranscriptionState::new())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -28,11 +30,13 @@ pub fn run() {
             commands::recording::cancel_recording,
             commands::recording::rename_recording,
             commands::transcription::transcribe,
+            commands::transcription::cancel_transcription,
             commands::transcription::rename_speakers,
             commands::files::open_file_dialog,
             commands::files::get_recent_files,
             commands::files::open_file,
             commands::files::copy_to_clipboard,
+            commands::files::copy_file_to_clipboard,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
