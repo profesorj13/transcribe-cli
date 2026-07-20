@@ -39,6 +39,20 @@ comando; el "todo junto en la ventana WKWebView real" (sobre todo grabar → ren
 transcribir) sigue necesitando un smoke test manual en la app, porque no se puede clickear el
 webview nativo desde los tests.
 
+### Gate automático al pushear (hook local)
+
+Hay un hook versionado en `.githooks/pre-push` que corre los tests rápidos (CLI + UI del
+desktop) y el build antes de cada `git push`; si algo falla, el push se bloquea. Se activa
+**una sola vez por clone**:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Bypass de emergencia: `git push --no-verify`. El hook no corre `cargo test` a propósito
+(primera compilación lenta + `CARGO_TARGET_DIR` fuera de `~/Desktop`); esos se corren a mano.
+No hay CI que corra tests todavía: el gate real vive en este hook y en los comandos de arriba.
+
 ## 1. Setup para los e2e con API real (cuesta centavos)
 
 Requiere `ffmpeg`, `ffprobe`, API keys en `~/.config/transcribe-cli/config.json`.
