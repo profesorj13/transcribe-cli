@@ -69,6 +69,24 @@ export function RecordingDone() {
       setErrorMessage("No se encontró el archivo de grabación. Intentá grabar de nuevo.");
       return;
     }
+
+    // Commit any pending name edit BEFORE transcribing: if the user typed a new
+    // name and hit "Transcribir ahora" without clicking ✓, the rename would
+    // otherwise be silently dropped and the .md would keep the old name
+    // (desktop-B1). Use the returned path directly — setFilePath is async and
+    // filePath in this closure is still the old value.
+    let inputPath: string;
+    try {
+      const committed = await commitPendingRename();
+      if (committed === null) return; // invalid name: stay on the form, error shown
+      inputPath = committed;
+    } catch (err) {
+      const msg =
+        typeof err === "string" ? err : err instanceof Error ? err.message : S.renameError;
+      setRenameError(msg);
+      return;
+    }
+
     setStatus("transcribing");
     setErrorMessage(null);
     setProgress(null);
@@ -94,13 +112,15 @@ export function RecordingDone() {
       );
 
       await tauri.transcribe({
-        input: filePath,
+        input: inputPath,
         provider: options.provider,
         language: options.language,
         timestamps: options.timestamps,
         translate: options.translate,
         speakers: options.speakers,
         numSpeakers: options.numSpeakers,
+        // A rename keeps the same directory, so the output folder (which may be a
+        // manual override) stays valid; the .md base name comes from inputPath.
         outputDir,
       });
     } catch (err) {
@@ -169,25 +189,37 @@ export function RecordingDone() {
     setNameDraft("");
   };
 
-  const confirmEditingName = async () => {
-    if (!filePath) return;
+  // Apply a pending name edit and return the path to use downstream:
+  // - not editing        -> current filePath (no-op)
+  // - edited, unchanged   -> current filePath (closes the editor)
+  // - edited to new name  -> the renamed path (also updates the store)
+  // - invalid name        -> null (sets renameError; caller should abort)
+  // Throws if the underlying rename fails so callers can surface the message.
+  const commitPendingRename = async (): Promise<string | null> => {
+    if (!filePath) return null;
+    if (!isEditingName) return filePath;
     // Compare against the SANITIZED name (what Rust will actually write), not the
     // raw text, so "no changes" and the final file agree (desktop-B14).
     const sanitized = sanitizeFileName(nameDraft);
     if (!sanitized) {
       setRenameError("El nombre no tiene caracteres válidos");
-      return;
+      return null;
     }
     if (sanitized === fileBaseName) {
       cancelEditingName();
-      return;
+      return filePath;
     }
+    const newPath = await tauri.renameRecording(filePath, nameDraft);
+    setFilePath(newPath);
+    setIsEditingName(false);
+    setRenameError(null);
+    setNameDraft("");
+    return newPath;
+  };
+
+  const confirmEditingName = async () => {
     try {
-      const newPath = await tauri.renameRecording(filePath, nameDraft);
-      setFilePath(newPath);
-      setIsEditingName(false);
-      setRenameError(null);
-      setNameDraft("");
+      await commitPendingRename();
     } catch (err) {
       const msg =
         typeof err === "string"
