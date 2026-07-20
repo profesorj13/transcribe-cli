@@ -9,7 +9,7 @@ Todos los comandos se corren **desde la raíz del repo**.
 ```bash
 bun install
 bun run typecheck                 # tsc --noEmit del CLI
-bun test src/                     # tests unitarios/regresión del CLI
+bun run test                      # tests del CLI (bun test ./src; el ./ evita colarse en desktop/)
 
 # desktop (Rust + front)
 export CARGO_TARGET_DIR=$HOME/.cache/cargo-target/transcribe-desktop   # NUNCA buildear dentro de ~/Desktop (iCloud)
@@ -20,11 +20,24 @@ export CARGO_TARGET_DIR=$HOME/.cache/cargo-target/transcribe-desktop   # NUNCA b
 
 Los tests de UI del desktop (`desktop/src/**/*.test.tsx`) ejercitan los clicks reales del
 usuario contra el IPC de Tauri mockeado (ver `desktop/src/test/setup.ts`), sin backend ni
-ventana. Cubren hoy los flujos críticos: **B1** (renombrar impacta el `.md`, incluido el
-caso de transcribir sin confirmar el ✓) y **B2** (progreso, error visible, done y cancelar).
+ventana. Cubren hoy (33 tests):
+
+- **RecordingDone** — **B1** (renombrar impacta el `.md`, incluido el caso de transcribir sin
+  confirmar el ✓) y **B2** (progreso por chunks, error visible, done y cancelar).
+- **ResultView** — copiar el `.md` **completo** (B09, con fallback al preview), editar hablantes
+  (manda solo los nombres no vacíos y refleja el nuevo preview), abrir archivo, volver.
+- **TranscribeView** — drag & drop nativo (B07, la ruta real llega por el webview), URL
+  soportada/ no soportada habilita/deshabilita transcribir, args que viajan a `transcribe`,
+  error de arranque visible (B03), cancelar en progreso mata el proceso hijo.
+- **SettingsSheet** — claves API enmascaradas (nunca en claro), agregar clave persiste vía
+  `save_config`, preferencias (toggle / select) se guardan al cambiar.
+- **RecentList** — estado vacío y abrir un reciente por su ruta.
+
 Los `cargo test` cubren el lado Rust de esos flujos (`rename_recording`, `expand_tilde`,
-truncado UTF-8, `rename_speakers`). El resto de los flujos de UI de abajo (settings, recientes,
-drag & drop, copiar, editar hablantes) todavía es **checklist manual** — falta automatizarlos.
+truncado UTF-8, `rename_speakers`). Estos tests validan la **lógica** de cada componente +
+comando; el "todo junto en la ventana WKWebView real" (sobre todo grabar → renombrar →
+transcribir) sigue necesitando un smoke test manual en la app, porque no se puede clickear el
+webview nativo desde los tests.
 
 ## 1. Setup para los e2e con API real (cuesta centavos)
 

@@ -8,7 +8,8 @@
   },
   "scripts": {
     "dev": "bun run bin/trans.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ./src"
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.39.0",

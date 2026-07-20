@@ -80,8 +80,19 @@ mock.module("@tauri-apps/api/event", () => ({
   },
 }));
 
+// Native (OS-level) drag & drop. In Tauri v2 the real paths only arrive through
+// the webview's onDragDropEvent, so we register the component's callback under a
+// synthetic event name that tests can drive with `emit("webview:dragdrop", ...)`.
 mock.module("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({
-    onDragDropEvent: async () => () => {},
+    onDragDropEvent: async (cb: (e: { payload: unknown }) => void) => {
+      const wrapped: Listener = (payload) => cb({ payload });
+      (registry.listeners["webview:dragdrop"] ??= []).push(wrapped);
+      return () => {
+        registry.listeners["webview:dragdrop"] = (
+          registry.listeners["webview:dragdrop"] ?? []
+        ).filter((f) => f !== wrapped);
+      };
+    },
   }),
 }));
