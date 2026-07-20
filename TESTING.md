@@ -13,9 +13,18 @@ bun test src/                     # tests unitarios/regresión del CLI
 
 # desktop (Rust + front)
 export CARGO_TARGET_DIR=$HOME/.cache/cargo-target/transcribe-desktop   # NUNCA buildear dentro de ~/Desktop (iCloud)
-(cd desktop/src-tauri && cargo check && cargo test)
-(cd desktop && bun install && bun run build)                            # tsc -b + vite build
+(cd desktop/src-tauri && cargo check && cargo test)                     # comandos Rust (rename, truncado, speakers)
+(cd desktop && bun install && bun test)                                 # flujos de UI (happy-dom + testing-library)
+(cd desktop && bun run build)                                           # tsc -b + vite build
 ```
+
+Los tests de UI del desktop (`desktop/src/**/*.test.tsx`) ejercitan los clicks reales del
+usuario contra el IPC de Tauri mockeado (ver `desktop/src/test/setup.ts`), sin backend ni
+ventana. Cubren hoy los flujos críticos: **B1** (renombrar impacta el `.md`, incluido el
+caso de transcribir sin confirmar el ✓) y **B2** (progreso, error visible, done y cancelar).
+Los `cargo test` cubren el lado Rust de esos flujos (`rename_recording`, `expand_tilde`,
+truncado UTF-8, `rename_speakers`). El resto de los flujos de UI de abajo (settings, recientes,
+drag & drop, copiar, editar hablantes) todavía es **checklist manual** — falta automatizarlos.
 
 ## 1. Setup para los e2e con API real (cuesta centavos)
 

@@ -346,3 +346,91 @@ pub fn cancel_recording(state: State<'_, RecordingState>) -> Result<(), String> 
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{expand_tilde, rename_recording};
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    // Carpeta temporal única por test (sin depender de crates externas).
+    fn tmp_dir() -> PathBuf {
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "transcribe-rename-test-{}-{}",
+            std::process::id(),
+            n
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write(path: &Path) {
+        std::fs::write(path, b"fake audio").unwrap();
+    }
+
+    #[test]
+    fn rename_sanitizes_and_preserves_folder_and_extension() {
+        let dir = tmp_dir();
+        let old = dir.join("recording-2026-07-20.wav");
+        write(&old);
+
+        let new_path =
+            rename_recording(old.to_string_lossy().to_string(), "Reunión equipo // 2026 !!".into())
+                .unwrap();
+
+        // Espacios/símbolos -> '-', guiones colapsados, sin guiones al borde.
+        assert_eq!(new_path, dir.join("Reunión-equipo-2026.wav").to_string_lossy());
+        assert!(Path::new(&new_path).exists());
+        assert!(!old.exists(), "el archivo viejo no debería seguir existiendo");
+    }
+
+    #[test]
+    fn rename_preserves_non_wav_extension() {
+        let dir = tmp_dir();
+        let old = dir.join("clip.m4a");
+        write(&old);
+
+        let new_path = rename_recording(old.to_string_lossy().to_string(), "charla".into()).unwrap();
+        assert_eq!(new_path, dir.join("charla.m4a").to_string_lossy());
+    }
+
+    #[test]
+    fn rename_rejects_name_without_valid_chars() {
+        let dir = tmp_dir();
+        let old = dir.join("recording.wav");
+        write(&old);
+
+        assert!(rename_recording(old.to_string_lossy().to_string(), "///".into()).is_err());
+        assert!(rename_recording(old.to_string_lossy().to_string(), "   ".into()).is_err());
+        // El archivo original sigue intacto tras un nombre inválido.
+        assert!(old.exists());
+    }
+
+    #[test]
+    fn rename_does_not_overwrite_existing_file() {
+        let dir = tmp_dir();
+        let old = dir.join("recording.wav");
+        write(&old);
+        let taken = dir.join("ocupado.wav");
+        write(&taken);
+
+        let err = rename_recording(old.to_string_lossy().to_string(), "ocupado".into()).unwrap_err();
+        assert!(err.contains("Ya existe"), "esperaba error de colisión, fue: {err}");
+        assert!(old.exists(), "no debe borrar el original si el destino existe");
+    }
+
+    #[test]
+    fn expand_tilde_matches_cli_behavior() {
+        let home = Path::new("/Users/tester");
+        assert_eq!(expand_tilde("~", home), home.to_path_buf());
+        assert_eq!(expand_tilde("~/Grabaciones", home), home.join("Grabaciones"));
+        assert_eq!(
+            expand_tilde("/tmp/abs", home),
+            PathBuf::from("/tmp/abs"),
+            "una ruta absoluta no se toca"
+        );
+    }
+}
