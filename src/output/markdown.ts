@@ -1,4 +1,4 @@
-import { basename, join } from "path";
+import { basename, dirname, join } from "path";
 import { homedir } from "os";
 import { existsSync } from "node:fs";
 import type { TranscriptionResult } from "../transcription/types.ts";
@@ -134,7 +134,8 @@ function findAvailableMdPath(filePath: string): string {
 
 export function getOutputPath(inputPath: string, customOutput?: string, cwdFallback?: boolean, outputDir?: string): string {
   if (customOutput) {
-    return customOutput;
+    // Respect the explicit path but never overwrite silently (same policy as auto-generated paths)
+    return findAvailableMdPath(customOutput);
   }
 
   let mdPath: string;
@@ -150,12 +151,10 @@ export function getOutputPath(inputPath: string, customOutput?: string, cwdFallb
     // For remote sources (YouTube, URLs), save in cwd
     mdPath = join(process.cwd(), mdName);
   } else {
-    // Replace extension with .md (local files)
-    if (lastDot === -1) {
-      mdPath = `${inputPath}.md`;
-    } else {
-      mdPath = `${inputPath.slice(0, lastDot)}.md`;
-    }
+    // Replace extension with .md (local files), preserving the input file's directory.
+    // Note: mdName is derived from basename(inputPath), so join with the input's dirname
+    // to avoid truncating the full path (the basename's dot index is not valid on inputPath).
+    mdPath = join(dirname(inputPath), mdName);
   }
 
   return findAvailableMdPath(mdPath);

@@ -7,7 +7,7 @@
     "trans": "./bin/trans.ts"
   },
   "scripts": {
-    "dev": "bun run bin/transcribe.ts",
+    "dev": "bun run bin/trans.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

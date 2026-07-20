@@ -34,9 +34,12 @@ export class FileProvider implements BaseProvider {
       throw new Error(`File not found: ${filePath}`);
     }
 
+    // A local file is never "remote": originalInput must equal filePath so callers
+    // (isRemote = originalInput !== filePath) keep the .md next to the audio instead
+    // of falling back to the current working directory.
     return {
       filePath,
-      originalInput: input,
+      originalInput: filePath,
     };
   }
 }

@@ -1,6 +1,6 @@
 import { $ } from "bun";
 import { tmpdir } from "os";
-import { join, basename } from "path";
+import { join, basename, extname } from "path";
 import { randomUUID } from "crypto";
 
 const CHUNK_DURATION_SECONDS = 5 * 60; // 5 minutes
@@ -20,9 +20,29 @@ export interface SplitResult {
 }
 
 export async function getAudioDuration(filePath: string): Promise<number> {
-  const result =
-    await $`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ${filePath}`.text();
-  return parseFloat(result.trim());
+  const probe =
+    await $`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ${filePath}`
+      .quiet()
+      .nothrow();
+
+  if (probe.exitCode !== 0) {
+    const stderr = probe.stderr.toString().trim();
+    throw new Error(
+      `No se pudo leer el audio "${filePath}"${stderr ? `: ${stderr}` : ""}. ` +
+        "El archivo puede estar corrupto o no ser un archivo de audio válido."
+    );
+  }
+
+  const raw = probe.stdout.toString().trim();
+  const duration = parseFloat(raw);
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(
+      `No se pudo determinar la duración del audio "${filePath}" ` +
+        `(ffprobe devolvió "${raw || "N/A"}"). El archivo puede estar corrupto o incompleto.`
+    );
+  }
+
+  return duration;
 }
 
 export interface SplitOptions {
@@ -42,7 +62,11 @@ export async function splitAudio(
   const chunks: AudioChunk[] = [];
   const numChunks = Math.ceil(duration / CHUNK_DURATION_SECONDS);
   const baseName = basename(filePath, ".wav").replace(/\.[^/.]+$/, "");
-  const ext = compress ? "mp3" : "wav";
+  // When compressing we always re-encode to mp3. When copying the stream (-c copy),
+  // keep the source container so the extension matches the real codec (e.g. aac in .m4a,
+  // mp3 in .mp3) instead of mislabeling everything as .wav.
+  const inputExt = extname(filePath).replace(/^\./, "").toLowerCase();
+  const ext = compress ? "mp3" : inputExt || "mka";
 
   if (numChunks <= 1) {
     // No split needed, but compress if file exceeds API size limit

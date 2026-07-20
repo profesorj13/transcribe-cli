@@ -4,11 +4,13 @@ import { join } from "path";
 import { randomUUID } from "crypto";
 import type { AudioSource, BaseProvider } from "./base.ts";
 
+// Only match Drive file URLs (downloadable binaries). Docs/Sheets/Slides
+// (docs.google.com/document|spreadsheets|presentation) are never audio, so they
+// are intentionally excluded to avoid handing them to yt-dlp audio extraction.
 const GDRIVE_PATTERNS = [
   /^https?:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/,
   /^https?:\/\/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/,
   /^https?:\/\/drive\.google\.com\/uc\?(?:.*&)?id=([a-zA-Z0-9_-]+)/,
-  /^https?:\/\/docs\.google\.com\/(?:document|spreadsheets|presentation)\/d\/([a-zA-Z0-9_-]+)/,
 ];
 
 function matchGDrive(input: string): RegExpMatchArray | null {

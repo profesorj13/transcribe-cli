@@ -66,14 +66,18 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
   let chunksCount: number | undefined;
   let cleanupFn: (() => Promise<void>) | undefined;
 
+  const OVERLAP_SECONDS = 30;
+
   if (provider === "elevenlabs") {
     const ELEVENLABS_CHUNK_THRESHOLD = 5 * 60; // 5 minutes
-    const OVERLAP_SECONDS = 30;
     const duration = await getAudioDuration(filePath);
 
     if (duration > ELEVENLABS_CHUNK_THRESHOLD) {
       const splitResult = await splitAudio(filePath, {
-        overlapSeconds: speakers ? OVERLAP_SECONDS : 0,
+        // Always overlap chunks: transcribeChunksParallel trims the overlap region
+        // from every non-first chunk, so this avoids losing/duplicating words at the
+        // 5-min boundaries (not just when diarizing).
+        overlapSeconds: OVERLAP_SECONDS,
         compress: false, // ElevenLabs accepts large files, no 25MB limit
       });
       const { chunks, cleanup } = splitResult;
@@ -88,7 +92,7 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
         timestamps,
         diarize: speakers,
         numSpeakers,
-        overlapSeconds: speakers ? OVERLAP_SECONDS : 0,
+        overlapSeconds: OVERLAP_SECONDS,
         onProgress: (completed, total) => {
           console.log(`Transcribed chunk ${completed}/${total}`);
         },
@@ -105,8 +109,11 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
       });
     }
   } else {
-    // Whisper: split if needed (25MB limit)
-    const splitResult = await splitAudio(filePath);
+    // Whisper: split if needed (25MB limit). El solape lo recorta
+    // mergeChunkResults por punto medio, así no se pierden palabras en los límites.
+    const splitResult = await splitAudio(filePath, {
+      overlapSeconds: OVERLAP_SECONDS,
+    });
     const { chunks, cleanup } = splitResult;
     cleanupFn = cleanup;
 
@@ -123,6 +130,7 @@ async function transcribeFile(options: TranscribeFileOptions): Promise<void> {
         chunks,
         language,
         timestamps,
+        overlapSeconds: OVERLAP_SECONDS,
         onProgress: (completed, total) => {
           console.log(
             `${translate ? "Translated" : "Transcribed"} chunk ${completed}/${total}`
@@ -344,9 +352,13 @@ program
     "Provider to configure: elevenlabs or whisper",
     "elevenlabs"
   )
-  .action(async (options) => {
-    if (options.setKey) {
-      const provider = options.provider as TranscriptionProvider;
+  .action(async (options, command) => {
+    // The root command also declares -p/--provider, which consumes the flag before this
+    // subcommand can, leaving options.provider at its default. optsWithGlobals() merges the
+    // global value so `config --set-key --provider whisper` is honored.
+    const opts = command.optsWithGlobals();
+    if (opts.setKey) {
+      const provider = opts.provider as TranscriptionProvider;
       const providerLabel =
         provider === "elevenlabs" ? "ElevenLabs" : "OpenAI";
 

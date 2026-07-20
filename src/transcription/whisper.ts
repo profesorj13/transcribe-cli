@@ -129,25 +129,90 @@ export interface ParallelTranscribeOptions {
   chunks: AudioChunk[];
   language?: string;
   timestamps?: boolean;
+  overlapSeconds?: number;
   onProgress?: (completed: number, total: number) => void;
+}
+
+export interface ChunkTranscription extends TranscriptionResult {
+  chunkIndex: number;
+  startTimeOffset: number;
+}
+
+// Combina resultados de chunks. Con overlapSeconds > 0 los chunks se solapan y
+// cada segmento se asigna por su punto medio absoluto: el corte cae al medio del
+// solape, donde ambos chunks escucharon el audio con contexto completo — así no
+// se pierden ni duplican palabras en los límites. Requiere segments en todos los
+// chunks; si faltan (o no hay solape), concatena como siempre.
+export function mergeChunkResults(
+  results: ChunkTranscription[],
+  opts: { timestamps?: boolean; overlapSeconds?: number }
+): TranscriptionResult {
+  const { timestamps, overlapSeconds = 0 } = opts;
+  const sorted = [...results].sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+  const canDedup =
+    overlapSeconds > 0 &&
+    sorted.length > 1 &&
+    sorted.every((r) => r.segments && r.segments.length > 0);
+
+  const keptPerChunk: TranscriptionSegment[][] = sorted.map((r, i) => {
+    let segments = r.segments ?? [];
+    if (canDedup) {
+      const low = i === 0 ? -Infinity : sorted[i]!.startTimeOffset + overlapSeconds / 2;
+      const high =
+        i === sorted.length - 1
+          ? Infinity
+          : sorted[i + 1]!.startTimeOffset + overlapSeconds / 2;
+      segments = segments.filter((seg) => {
+        const mid = r.startTimeOffset + (seg.start + seg.end) / 2;
+        return mid >= low && mid < high;
+      });
+    }
+    return segments.map((seg) => ({
+      start: seg.start + r.startTimeOffset,
+      end: seg.end + r.startTimeOffset,
+      text: seg.text,
+    }));
+  });
+
+  const combinedText = canDedup
+    ? keptPerChunk
+        .map((segs) => segs.map((s) => s.text.trim()).join(" ").trim())
+        .filter((t) => t.length > 0)
+        .join("\n\n")
+    : sorted.map((r) => r.text.trim()).join("\n\n");
+
+  const totalDuration = sorted.reduce(
+    (sum, r, i) =>
+      sum + (r.duration ? r.duration - (i > 0 ? overlapSeconds : 0) : 0),
+    0
+  );
+
+  return {
+    text: combinedText,
+    segments: timestamps ? keptPerChunk.flat() : undefined,
+    language: sorted[0]?.language,
+    duration: totalDuration,
+  };
 }
 
 export async function transcribeChunksParallel(
   options: ParallelTranscribeOptions
 ): Promise<TranscriptionResult> {
-  const { apiKey, chunks, language, timestamps, onProgress } = options;
+  const { apiKey, chunks, language, timestamps, overlapSeconds = 0, onProgress } = options;
 
   let completed = 0;
   const total = chunks.length;
 
-  // Transcribe all chunks in parallel
+  // Transcribe all chunks in parallel. Con solape pedimos segments siempre:
+  // mergeChunkResults los necesita para recortar en los límites.
   const results = await Promise.all(
     chunks.map(async (chunk) => {
       const result = await transcribeAudio({
         apiKey,
         filePath: chunk.path,
         language,
-        timestamps,
+        timestamps: timestamps || overlapSeconds > 0,
       });
 
       completed++;
@@ -161,44 +226,13 @@ export async function transcribeChunksParallel(
     })
   );
 
-  // Sort by chunk index to maintain order
-  results.sort((a, b) => a.chunkIndex - b.chunkIndex);
-
-  // Combine results
-  const combinedText = results.map((r) => r.text.trim()).join("\n\n");
-
-  // Combine segments with adjusted timestamps
-  let combinedSegments: TranscriptionSegment[] | undefined;
-  if (timestamps) {
-    combinedSegments = [];
-    for (const result of results) {
-      if (result.segments) {
-        for (const seg of result.segments) {
-          combinedSegments.push({
-            start: seg.start + result.startTimeOffset,
-            end: seg.end + result.startTimeOffset,
-            text: seg.text,
-          });
-        }
-      }
-    }
-  }
-
-  // Get total duration from all chunks
-  const totalDuration = results.reduce((sum, r) => sum + (r.duration || 0), 0);
-
-  return {
-    text: combinedText,
-    segments: combinedSegments,
-    language: results[0]?.language,
-    duration: totalDuration,
-  };
+  return mergeChunkResults(results, { timestamps, overlapSeconds });
 }
 
 export async function translateChunksParallel(
   options: ParallelTranscribeOptions
 ): Promise<TranscriptionResult> {
-  const { apiKey, chunks, timestamps, onProgress } = options;
+  const { apiKey, chunks, timestamps, overlapSeconds = 0, onProgress } = options;
 
   let completed = 0;
   const total = chunks.length;
@@ -208,7 +242,7 @@ export async function translateChunksParallel(
       const result = await translateAudio({
         apiKey,
         filePath: chunk.path,
-        timestamps,
+        timestamps: timestamps || overlapSeconds > 0,
       });
 
       completed++;
@@ -222,32 +256,5 @@ export async function translateChunksParallel(
     })
   );
 
-  results.sort((a, b) => a.chunkIndex - b.chunkIndex);
-
-  const combinedText = results.map((r) => r.text.trim()).join("\n\n");
-
-  let combinedSegments: TranscriptionSegment[] | undefined;
-  if (timestamps) {
-    combinedSegments = [];
-    for (const result of results) {
-      if (result.segments) {
-        for (const seg of result.segments) {
-          combinedSegments.push({
-            start: seg.start + result.startTimeOffset,
-            end: seg.end + result.startTimeOffset,
-            text: seg.text,
-          });
-        }
-      }
-    }
-  }
-
-  const totalDuration = results.reduce((sum, r) => sum + (r.duration || 0), 0);
-
-  return {
-    text: combinedText,
-    segments: combinedSegments,
-    language: results[0]?.language,
-    duration: totalDuration,
-  };
+  return mergeChunkResults(results, { timestamps, overlapSeconds });
 }
