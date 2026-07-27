@@ -1,7 +1,37 @@
-import { $ } from "bun";
 import { tmpdir } from "os";
 import { join, basename, extname } from "path";
 import { randomUUID } from "crypto";
+import { mkdir, rm } from "node:fs/promises";
+
+// Bun's $ shell corrompe argumentos interpolados cuando el string tiene
+// representación interna latin1 y contiene caracteres no-ASCII (ej.
+// "Inclusión.wav"): el proceso hijo recibe un path mutilado. El bug existe
+// al menos hasta bun 1.3.14, así que ffmpeg/ffprobe se ejecutan vía
+// Bun.spawn con argv en array — sin shell, los paths llegan byte-exactos.
+async function run(
+  cmd: string[],
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const proc = (() => {
+    try {
+      return Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+    } catch {
+      throw new Error(
+        `No se pudo ejecutar ${cmd[0]}. Verificá que esté instalado (brew install ffmpeg).`,
+      );
+    }
+  })();
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  const exitCode = await proc.exited;
+  return { exitCode, stdout, stderr };
+}
+
+// Última(s) línea(s) útiles del stderr de ffmpeg para armar errores legibles.
+function stderrTail(stderr: string): string {
+  return stderr.trim().split("\n").slice(-2).join(" ").trim();
+}
 
 const CHUNK_DURATION_SECONDS = 5 * 60; // 5 minutes
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25MB Whisper API limit
@@ -20,20 +50,26 @@ export interface SplitResult {
 }
 
 export async function getAudioDuration(filePath: string): Promise<number> {
-  const probe =
-    await $`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ${filePath}`
-      .quiet()
-      .nothrow();
+  const probe = await run([
+    "ffprobe",
+    "-v",
+    "error",
+    "-show_entries",
+    "format=duration",
+    "-of",
+    "default=noprint_wrappers=1:nokey=1",
+    filePath,
+  ]);
 
   if (probe.exitCode !== 0) {
-    const stderr = probe.stderr.toString().trim();
+    const stderr = probe.stderr.trim();
     throw new Error(
       `No se pudo leer el audio "${filePath}"${stderr ? `: ${stderr}` : ""}. ` +
         "El archivo puede estar corrupto o no ser un archivo de audio válido."
     );
   }
 
-  const raw = probe.stdout.toString().trim();
+  const raw = probe.stdout.trim();
   const duration = parseFloat(raw);
   if (!Number.isFinite(duration) || duration <= 0) {
     throw new Error(
@@ -57,7 +93,7 @@ export async function splitAudio(
   const { overlapSeconds = 0, compress = true } = options ?? {};
   const duration = await getAudioDuration(filePath);
   const tempDir = join(tmpdir(), `trans-${randomUUID()}`);
-  await $`mkdir -p ${tempDir}`;
+  await mkdir(tempDir, { recursive: true });
 
   const chunks: AudioChunk[] = [];
   const numChunks = Math.ceil(duration / CHUNK_DURATION_SECONDS);
@@ -75,12 +111,19 @@ export async function splitAudio(
       if (fileSize > MAX_FILE_SIZE_BYTES) {
         console.log(`File size (${(fileSize / 1024 / 1024).toFixed(1)}MB) exceeds 25MB limit, compressing...`);
         const compressedPath = join(tempDir, `${baseName}-compressed.mp3`);
-        await $`ffmpeg -i ${filePath} -ac 1 -ar 16000 -y ${compressedPath}`.quiet();
+        const comp = await run([
+          "ffmpeg", "-i", filePath, "-ac", "1", "-ar", "16000", "-y", compressedPath,
+        ]);
+        if (comp.exitCode !== 0) {
+          throw new Error(
+            `No se pudo comprimir el audio "${filePath}": ${stderrTail(comp.stderr)}`,
+          );
+        }
         console.log(`Compressed to ${(Bun.file(compressedPath).size / 1024 / 1024).toFixed(1)}MB\n`);
         return {
           chunks: [{ path: compressedPath, startTime: 0, index: 0 }],
           totalDuration: duration,
-          cleanup: async () => { await $`rm -rf ${tempDir}`.quiet(); },
+          cleanup: async () => { await rm(tempDir, { recursive: true, force: true }); },
         };
       }
     }
@@ -103,10 +146,14 @@ export async function splitAudio(
     const chunkDuration = CHUNK_DURATION_SECONDS + overlap;
     const chunkPath = join(tempDir, `${baseName}-chunk-${i.toString().padStart(3, "0")}.${ext}`);
 
-    if (compress) {
-      await $`ffmpeg -i ${filePath} -ss ${startTime} -t ${chunkDuration} -ar 16000 -ac 1 -y ${chunkPath}`.quiet();
-    } else {
-      await $`ffmpeg -i ${filePath} -ss ${startTime} -t ${chunkDuration} -c copy -y ${chunkPath}`.quiet();
+    const chunkArgs = compress
+      ? ["ffmpeg", "-i", filePath, "-ss", String(startTime), "-t", String(chunkDuration), "-ar", "16000", "-ac", "1", "-y", chunkPath]
+      : ["ffmpeg", "-i", filePath, "-ss", String(startTime), "-t", String(chunkDuration), "-c", "copy", "-y", chunkPath];
+    const cut = await run(chunkArgs);
+    if (cut.exitCode !== 0) {
+      throw new Error(
+        `No se pudo cortar el fragmento ${i + 1}/${numChunks} de "${filePath}": ${stderrTail(cut.stderr)}`,
+      );
     }
 
     chunks.push({
@@ -123,7 +170,7 @@ export async function splitAudio(
     chunks,
     totalDuration: duration,
     cleanup: async () => {
-      await $`rm -rf ${tempDir}`.quiet();
+      await rm(tempDir, { recursive: true, force: true });
     },
   };
 }
