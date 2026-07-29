@@ -35,7 +35,7 @@ export const S = {
   // Transcribe view
   dropzone: "Arrastrá un archivo aquí",
   dropzoneClick: "o hacé clic para buscar",
-  dropzoneFormats: "mp3, wav, m4a, ogg, opus, flac, mp4, webm",
+  dropzoneFormats: "mp3, wav, m4a, ogg, oga, opus, flac, mp4, webm",
   orPasteLink: "o pegar un enlace",
   supportedSources: "Soportado: YouTube, Instagram, Google Drive",
   urlPlaceholder: "https://youtube.com/watch?v=... o https://drive.google.com/file/d/...",

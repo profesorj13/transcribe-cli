@@ -13,10 +13,12 @@ describe("FileProvider.canHandle", () => {
     "audio.wav",
     "audio.webm",
     "audio.ogg",
+    "audio.oga",
     "audio.opus",
     "audio.flac",
     "/path/to/recording.opus",
     "my file.OPUS",
+    "nota de voz.oga",
   ];
 
   for (const file of supported) {

@@ -7,6 +7,7 @@ const SUPPORTED_EXTENSIONS = [
   "wav",
   "webm",
   "ogg",
+  "oga",
   "opus",
   "flac",
 ];
