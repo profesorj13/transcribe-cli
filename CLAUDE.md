@@ -49,5 +49,5 @@ src/config/api-key.ts       → API key resolution: CLI flag → env var → con
 
 - System dependencies: `ffmpeg`, `ffprobe`, `sox` (recording fallback)
 - API key resolution cascades: `--api-key` flag → `OPENAI_API_KEY` env → `~/.config/transcribe-cli/config.json`
-- Supported audio formats: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, flac
+- Supported audio formats: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, opus, flac
 - UI strings use Spanish localization (e.g., "Transcripción", "Duración")

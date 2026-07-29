@@ -20,7 +20,7 @@ export function getProvider(input: string): BaseProvider {
 
   throw new Error(
     `No provider found for input: ${input}\n` +
-      "Supported: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, flac, YouTube URLs, Instagram URLs, Google Drive URLs"
+      "Supported: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, opus, flac, YouTube URLs, Instagram URLs, Google Drive URLs"
   );
 }
 
