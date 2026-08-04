@@ -96,6 +96,19 @@ export async function copyFileToClipboard(path: string): Promise<void> {
   return invoke("copy_file_to_clipboard", { path });
 }
 
+// odd (dashboard de estrategia): ¿está el script y responde el dashboard?
+export async function oddAvailable(): Promise<boolean> {
+  return invoke("odd_available");
+}
+
+// Crea la tarea local en odd para procesar esta transcripción (fire-and-forget).
+export async function oddProcessTranscript(
+  path: string,
+  instruction?: string,
+): Promise<void> {
+  return invoke("odd_process_transcript", { path, instruction });
+}
+
 // Event listeners
 export function onRecordingTick(
   callback: (seconds: number) => void,

@@ -29,6 +29,17 @@ export const S = {
   openFile: "Abrir archivo",
   copyText: "Copiar texto",
   copied: "Copiado",
+  pathCopied: "Ruta copiada",
+
+  // odd (dashboard de estrategia)
+  processInOdd: "Procesar en odd",
+  oddInstructionLabel: "Contexto extra (opcional)",
+  oddInstructionPlaceholder:
+    "De qué proyecto/cliente es la reunión, qué querés que mire...",
+  oddSend: "Disparar",
+  oddSending: "Disparando...",
+  oddSent: "Enviado a odd",
+  oddError: "No se pudo disparar el procesamiento en odd",
   backToHome: "Volver al inicio",
   back: "Volver",
 

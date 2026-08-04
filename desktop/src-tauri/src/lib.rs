@@ -37,6 +37,8 @@ pub fn run() {
             commands::files::open_file,
             commands::files::copy_to_clipboard,
             commands::files::copy_file_to_clipboard,
+            commands::odd::odd_available,
+            commands::odd::odd_process_transcript,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

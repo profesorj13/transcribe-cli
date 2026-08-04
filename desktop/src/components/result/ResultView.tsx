@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, FileText, Copy, ArrowLeft, Users } from "lucide-react";
+import { Check, FileText, Copy, ArrowLeft, Users, Send } from "lucide-react";
 import { Button } from "../shared/Button";
 import { SpeakerRenameForm } from "./SpeakerRenameForm";
+import { OddProcessForm } from "./OddProcessForm";
 import { S } from "../../lib/strings";
+import { useAppStore } from "../../stores/app";
 import type { TranscriptionResult } from "../../types";
 import * as tauri from "../../lib/tauri";
 
@@ -14,9 +16,32 @@ interface ResultViewProps {
 
 export function ResultView({ result, onBack }: ResultViewProps) {
   const [copied, setCopied] = useState(false);
+  const [pathCopied, setPathCopied] = useState(false);
   const [showRename, setShowRename] = useState(false);
   const [renamed, setRenamed] = useState(false);
   const [currentPreview, setCurrentPreview] = useState(result.preview);
+  const [oddReady, setOddReady] = useState(false);
+  const [showOdd, setShowOdd] = useState(false);
+  const [oddSending, setOddSending] = useState(false);
+  const [oddSent, setOddSent] = useState(false);
+  const setError = useAppStore((s) => s.setError);
+
+  // El botón de odd solo aparece si el dashboard está levantado (y está el script
+  // que dispara la tarea). Si no, no mostramos un botón que va a fallar.
+  useEffect(() => {
+    let alive = true;
+    tauri
+      .oddAvailable()
+      .then((available) => {
+        if (alive) setOddReady(available);
+      })
+      .catch(() => {
+        if (alive) setOddReady(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const handleCopy = async () => {
     try {
@@ -29,6 +54,32 @@ export function ResultView({ result, onBack }: ResultViewProps) {
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Click en la ruta = ruta al portapapeles. Es el único modo de copiarla: hay
+  // user-select: none global, así que no se puede seleccionar con el mouse.
+  const handleCopyPath = async () => {
+    try {
+      await tauri.copyToClipboard(result.outputPath);
+    } catch {
+      // pbcopy no debería fallar; si falla, no vale interrumpir la pantalla.
+      return;
+    }
+    setPathCopied(true);
+    setTimeout(() => setPathCopied(false), 2000);
+  };
+
+  const handleOddProcess = async (instruction: string) => {
+    setOddSending(true);
+    try {
+      await tauri.oddProcessTranscript(result.outputPath, instruction || undefined);
+      setShowOdd(false);
+      setOddSent(true);
+    } catch (e) {
+      setError({ type: "error", message: `${S.oddError}: ${e}` });
+    } finally {
+      setOddSending(false);
+    }
   };
 
   const handleRenameSpeakers = async (mapping: Record<string, string>) => {
@@ -82,16 +133,43 @@ export function ResultView({ result, onBack }: ResultViewProps) {
         />
       )}
 
-      {/* Output path */}
-      <p className="text-[11px] text-neutral-400 dark:text-neutral-600">
-        {S.savedAt}: {result.outputPath}
-      </p>
+      {/* odd process form */}
+      {showOdd && (
+        <OddProcessForm
+          sending={oddSending}
+          onConfirm={handleOddProcess}
+          onCancel={() => setShowOdd(false)}
+        />
+      )}
+
+      {/* Output path — click para copiar la ruta */}
+      <button
+        type="button"
+        onClick={handleCopyPath}
+        title={result.outputPath}
+        className="max-w-full truncate text-[11px] text-neutral-400 dark:text-neutral-600 hover:text-neutral-600 dark:hover:text-neutral-400 cursor-pointer transition-colors"
+      >
+        {pathCopied ? S.pathCopied : `${S.savedAt}: ${result.outputPath}`}
+      </button>
 
       {/* Speaker rename button */}
       {hasSpeakers && !showRename && (
         <Button variant="secondary" fullWidth onClick={() => setShowRename(true)}>
           <Users size={14} />
           {S.editSpeakers}
+        </Button>
+      )}
+
+      {/* Procesar en odd — solo si el dashboard responde */}
+      {oddReady && !showOdd && (
+        <Button
+          variant="secondary"
+          fullWidth
+          disabled={oddSent}
+          onClick={() => setShowOdd(true)}
+        >
+          {oddSent ? <Check size={14} /> : <Send size={14} />}
+          {oddSent ? S.oddSent : S.processInOdd}
         </Button>
       )}
 

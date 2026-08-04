@@ -34,6 +34,8 @@ beforeEach(() => {
   tauri.on("get_config", () => ({}));
   tauri.on("transcribe", () => undefined);
   tauri.on("cancel_transcription", () => undefined);
+  // ResultView (estado "done") consulta si el dashboard de odd está levantado.
+  tauri.on("odd_available", () => false);
 });
 
 afterEach(() => cleanup());

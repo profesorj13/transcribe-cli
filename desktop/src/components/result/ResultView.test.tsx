@@ -32,6 +32,9 @@ beforeEach(() => {
   tauri.on("copy_to_clipboard", () => undefined);
   tauri.on("open_file", () => undefined);
   tauri.on("rename_speakers", () => "PREVIEW ACTUALIZADO: Juan dijo algo.");
+  // Por defecto el dashboard de odd está apagado: el botón no se muestra.
+  tauri.on("odd_available", () => false);
+  tauri.on("odd_process_transcript", () => undefined);
 });
 
 afterEach(() => cleanup());
@@ -121,6 +124,84 @@ describe("ResultView — editar hablantes", () => {
     expect(tauri.callsFor("rename_speakers").length).toBe(0);
     // Sigue sin renombrar: el botón vuelve a estar disponible.
     expect(screen.getByText("Editar hablantes")).toBeTruthy();
+  });
+});
+
+describe("ResultView — copiar la ruta", () => {
+  test("click en la ruta copia la ruta y muestra 'Ruta copiada'", async () => {
+    render(<ResultView result={makeResult()} onBack={onBack} />);
+    fireEvent.click(screen.getByText(`Guardado en: ${OUTPUT}`));
+
+    await waitFor(() => expect(tauri.callsFor("copy_to_clipboard").length).toBe(1));
+    expect(tauri.callsFor("copy_to_clipboard")[0]!.text).toBe(OUTPUT);
+    // Copia la RUTA, no el contenido del .md (ese es el botón "Copiar texto").
+    expect(tauri.callsFor("copy_file_to_clipboard").length).toBe(0);
+    await screen.findByText("Ruta copiada");
+  });
+});
+
+describe("ResultView — procesar en odd", () => {
+  test("si el dashboard no responde, el botón no aparece", async () => {
+    render(<ResultView result={makeResult()} onBack={onBack} />);
+    await waitFor(() => expect(tauri.callsFor("odd_available").length).toBe(1));
+    expect(screen.queryByText("Procesar en odd")).toBeNull();
+  });
+
+  test("dispara la tarea con el contexto extra y queda marcado como enviado", async () => {
+    tauri.on("odd_available", () => true);
+    render(<ResultView result={makeResult()} onBack={onBack} />);
+
+    fireEvent.click(await screen.findByText("Procesar en odd"));
+    const textarea = screen.getByPlaceholderText(
+      /De qué proyecto\/cliente es la reunión/,
+    );
+    fireEvent.change(textarea, {
+      target: { value: "es la reu con Vialidad del producto Tich" },
+    });
+    fireEvent.click(screen.getByText("Disparar"));
+
+    await waitFor(() =>
+      expect(tauri.callsFor("odd_process_transcript").length).toBe(1),
+    );
+    const call = tauri.callsFor("odd_process_transcript")[0]!;
+    expect(call.path).toBe(OUTPUT);
+    expect(call.instruction).toBe("es la reu con Vialidad del producto Tich");
+
+    // El formulario se cierra y el botón queda en "Enviado a odd" (no re-disparar).
+    await screen.findByText("Enviado a odd");
+    expect(screen.queryByText("Disparar")).toBeNull();
+  });
+
+  test("se puede disparar sin contexto: no manda instruction", async () => {
+    tauri.on("odd_available", () => true);
+    render(<ResultView result={makeResult()} onBack={onBack} />);
+
+    fireEvent.click(await screen.findByText("Procesar en odd"));
+    fireEvent.click(screen.getByText("Disparar"));
+
+    await waitFor(() =>
+      expect(tauri.callsFor("odd_process_transcript").length).toBe(1),
+    );
+    expect(tauri.callsFor("odd_process_transcript")[0]!.instruction).toBeUndefined();
+    await screen.findByText("Enviado a odd");
+  });
+
+  test("si el disparo falla, no queda marcado como enviado y el form sigue abierto", async () => {
+    tauri.on("odd_available", () => true);
+    tauri.on("odd_process_transcript", () => {
+      throw "el dashboard no respondió";
+    });
+    render(<ResultView result={makeResult()} onBack={onBack} />);
+
+    fireEvent.click(await screen.findByText("Procesar en odd"));
+    fireEvent.click(screen.getByText("Disparar"));
+
+    await waitFor(() =>
+      expect(tauri.callsFor("odd_process_transcript").length).toBe(1),
+    );
+    expect(screen.queryByText("Enviado a odd")).toBeNull();
+    // Se puede reintentar sin perder lo escrito.
+    expect(screen.getByText("Disparar")).toBeTruthy();
   });
 });
 
